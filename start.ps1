@@ -204,12 +204,11 @@ if ($SingleWindow) {
     try {
         npm start
     } finally {
-        if ($backendJob) {
-            Stop-Job $backendJob -ErrorAction SilentlyContinue
-            Remove-Job $backendJob -Force -ErrorAction SilentlyContinue
-            Write-Host "Backend arrete." -ForegroundColor Yellow
-        }
         Set-Location $rootDir
+        # Ne pas arrêter le backend : il reste en arrière-plan pour réutiliser l'API
+        if ($backendJob) {
+            Write-Host "Frontend arrete. Backend toujours actif (port $backendPort). Pour tout arreter: .\stop.ps1" -ForegroundColor Yellow
+        }
     }
     exit 0
 }

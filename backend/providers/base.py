@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Dict, List, Optional, Protocol, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, Union
+
+# Callback optionnel pour signaler la progression : (current, total, message). total=-1 si inconnu.
+ProgressCallback = Optional[Callable[[int, int, str], Awaitable[None]]]
 
 
 @dataclass
@@ -72,10 +75,12 @@ class InvoiceProviderProtocol(Protocol):
         date_end: Optional[str] = None,
         otp_code: Optional[str] = None,
         force_redownload: bool = False,
+        on_progress: ProgressCallback = None,
     ) -> Dict[str, Union[List[str], int]]:
         """
         Télécharge les factures selon les filtres.
         Retourne {"count": int, "files": List[str]}.
+        on_progress(current, total, message) est appelé à chaque facture (total=-1 si inconnu).
         """
         ...
 

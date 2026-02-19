@@ -1459,6 +1459,7 @@ class AmazonInvoiceDownloader:
         date_end: Optional[str] = None,
         otp_code: Optional[str] = None,
         force_redownload: bool = False,
+        on_progress: Optional[Callable[[int, int, str], Awaitable[None]]] = None,
     ) -> Dict[str, Union[List[str], int]]:
         """
         Télécharge les factures Amazon.
@@ -1540,6 +1541,11 @@ class AmazonInvoiceDownloader:
                     to_process = min(len(filtered), max_invoices - count)
                     for j in range(to_process):
                         order, oid, inv_date = filtered[j]
+                        if on_progress:
+                            try:
+                                await on_progress(count, -1, f"Téléchargement commande {count + 1}…")
+                            except Exception:
+                                pass
                         try:
                             file_name = await self.download_invoice(
                                 order,
@@ -1551,6 +1557,11 @@ class AmazonInvoiceDownloader:
                             if file_name:
                                 downloaded_files.append(file_name)
                                 count += 1
+                                if on_progress:
+                                    try:
+                                        await on_progress(count, -1, f"{count} facture(s) téléchargée(s)")
+                                    except Exception:
+                                        pass
                             global_order_index += 1
                             time.sleep(1)
                         except Exception as e:

@@ -1,14 +1,20 @@
 """
 Point d'entrée principal de l'API FastAPI (Get-Invoices V2 multi-fournisseurs).
 """
+import asyncio
+import json
 import logging
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 
+# Timeout max pour un téléchargement (évite que la requête reste bloquée indéfiniment)
+DOWNLOAD_TIMEOUT_SECONDS = 600  # 10 minutes
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from logging.handlers import RotatingFileHandler
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -24,6 +30,10 @@ from backend.models.schemas import (
 from backend.providers import PROVIDERS, PROVIDER_LABELS
 from backend.providers.amazon import AmazonProvider
 from backend.providers.freebox import FreeboxProvider
+
+# Racine du projet (où se trouve .env), quel que soit le répertoire de travail au démarrage
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_ENV_FILE = _PROJECT_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -44,7 +54,7 @@ class Settings(BaseSettings):
     freebox_password: Optional[str] = None
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False
@@ -115,7 +125,11 @@ logger = logging.getLogger(__name__)
 try:
     settings = Settings()
     settings.validate_settings()
-    logger.info("Configuration chargée et validée avec succès")
+    logger.info(
+        "Configuration chargée et validée (env_file=%s, email=%s)",
+        _ENV_FILE,
+        (settings.amazon_email[:3] + "***") if settings.amazon_email else "non défini",
+    )
 except ValueError as e:
     logger.error(f"Erreur de configuration: {e}")
     logger.error("Veuillez vérifier votre fichier .env à la racine du projet")
@@ -274,20 +288,14 @@ async def debug_info() -> dict:
     return debug_info
 
 
-@app.post("/api/download", response_model=DownloadResponse)
+@app.post("/api/download")
 async def download_invoices(
     request: DownloadRequest,
     otp_code: Optional[str] = None
-) -> DownloadResponse:
+) -> StreamingResponse:
     """
-    Télécharge les factures du fournisseur demandé (Amazon, etc.).
-
-    Args:
-        request: Paramètres dont provider (défaut: amazon), nombre, période, etc.
-        otp_code: Code OTP pour la 2FA (optionnel)
-
-    Returns:
-        Réponse avec le nombre de factures téléchargées ou demande de code OTP
+    Télécharge les factures du fournisseur demandé (Amazon, Freebox, etc.).
+    Retourne un flux SSE : événements progress (progression) puis done (résultat) ou error.
     """
     provider_id = (request.provider or "amazon").strip().lower()
     downloader = _get_downloader(provider_id)
@@ -301,43 +309,74 @@ async def download_invoices(
             status_code=503,
             detail=f"Le fournisseur '{provider_id}' n'est pas configuré ou initialisé"
         )
-    
-    try:
-        logger.info(
-            "Démarrage téléchargement provider=%s max_invoices=%s year=%s month=%s months=%s date_start=%s date_end=%s force_redownload=%s otp=%s",
-            provider_id, request.max_invoices, request.year, request.month, request.months,
-            request.date_start, request.date_end, request.force_redownload, "fourni" if otp_code else "non fourni"
-        )
-        result = await downloader.download_invoices(
-            max_invoices=request.max_invoices or settings.max_invoices,
-            year=request.year,
-            month=request.month,
-            months=request.months,
-            date_start=request.date_start,
-            date_end=request.date_end,
-            otp_code=otp_code,
-            force_redownload=request.force_redownload or False,
-        )
-        return DownloadResponse(
-            success=True,
-            message=f"{result['count']} facture(s) téléchargée(s)",
-            count=result["count"],
-            files=result.get("files", [])
-        )
-    except Exception as e:
-        import traceback
-        error_message = str(e)
-        logger.error("Erreur lors du téléchargement: %s", error_message)
-        logger.debug("Traceback: %s", traceback.format_exc())
-        if "Code 2FA requis" in error_message or downloader.is_2fa_required():
-            raise HTTPException(
-                status_code=401,
-                detail="Code 2FA requis - utilisez /api/submit-otp pour fournir le code"
+
+    progress_queue: asyncio.Queue[tuple[str, Any, Any, Any]] = asyncio.Queue()
+
+    async def on_progress(current: int, total: int, message: str) -> None:
+        await progress_queue.put(("progress", current, total, message))
+
+    async def run_download() -> None:
+        try:
+            result = await asyncio.wait_for(
+                downloader.download_invoices(
+                    max_invoices=request.max_invoices or settings.max_invoices,
+                    year=request.year,
+                    month=request.month,
+                    months=request.months,
+                    date_start=request.date_start,
+                    date_end=request.date_end,
+                    otp_code=otp_code,
+                    force_redownload=request.force_redownload or False,
+                    on_progress=on_progress,
+                ),
+                timeout=DOWNLOAD_TIMEOUT_SECONDS,
             )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erreur lors du téléchargement: {error_message}"
-        )
+            await progress_queue.put(("done", result, None, None))
+        except asyncio.TimeoutError:
+            await progress_queue.put(("error", "timeout", None, None))
+        except Exception as e:
+            import traceback
+            logger.error("Erreur lors du téléchargement: %s", e)
+            logger.debug("Traceback: %s", traceback.format_exc())
+            await progress_queue.put(("error", str(e), None, None))
+
+    logger.info(
+        "Démarrage téléchargement provider=%s max_invoices=%s year=%s month=%s otp=%s",
+        provider_id, request.max_invoices, request.year, request.month, "fourni" if otp_code else "non fourni"
+    )
+    task = asyncio.create_task(run_download())
+
+    async def event_stream() -> AsyncIterator[str]:
+        while True:
+            item = await progress_queue.get()
+            kind = item[0]
+            if kind == "progress":
+                _, current, total, message = item
+                payload = json.dumps({"current": current, "total": total, "message": message or ""})
+                yield f"event: progress\ndata: {payload}\n\n"
+            elif kind == "done":
+                _, result, _, _ = item
+                data = {
+                    "success": True,
+                    "message": f"{result['count']} facture(s) téléchargée(s)",
+                    "count": result["count"],
+                    "files": result.get("files", []),
+                }
+                yield f"event: done\ndata: {json.dumps(data)}\n\n"
+                break
+            elif kind == "error":
+                _, err_msg, _, _ = item
+                is_2fa = "Code 2FA requis" in (err_msg or "") or (downloader.is_2fa_required() if downloader else False)
+                payload = json.dumps({"detail": err_msg or "Erreur", "requires_otp": is_2fa})
+                yield f"event: error\ndata: {payload}\n\n"
+                break
+        await task  # consommer la tâche pour éviter warning
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/status", response_model=StatusResponse)

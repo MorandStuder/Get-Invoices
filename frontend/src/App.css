@@ -148,3 +148,25 @@
   cursor: not-allowed;
 }
 
+/* Bouton Annuler pendant le téléchargement */
+.cancel-row {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.cancel-button {
+  padding: 0.6rem 1.2rem;
+  font-size: 0.95rem;
+  background-color: transparent;
+  color: #c62828;
+  border: 1px solid #e57373;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.cancel-button:hover {
+  background-color: #ffebee;
+  color: #b71c1c;
+}
+

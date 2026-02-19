@@ -88,6 +88,7 @@ class AmazonProvider:
         date_end: Optional[str] = None,
         otp_code: Optional[str] = None,
         force_redownload: bool = False,
+        on_progress: Optional[Callable[[int, int, str], Awaitable[None]]] = None,
     ) -> Dict[str, Union[List[str], int]]:
         return await self._downloader.download_invoices(
             max_invoices=max_invoices,
@@ -98,6 +99,7 @@ class AmazonProvider:
             date_end=date_end,
             otp_code=otp_code,
             force_redownload=force_redownload,
+            on_progress=on_progress,
         )
 
     async def close(self) -> None:
