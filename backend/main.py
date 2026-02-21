@@ -30,6 +30,7 @@ from backend.models.schemas import (
 from backend.providers import PROVIDERS, PROVIDER_LABELS
 from backend.providers.amazon import AmazonProvider
 from backend.providers.freebox import FreeboxProvider
+from backend.providers.free_mobile import FreeMobileProvider
 
 # Racine du projet (où se trouve .env), quel que soit le répertoire de travail au démarrage
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -52,6 +53,9 @@ class Settings(BaseSettings):
     # Freebox (optionnel)
     freebox_login: Optional[str] = None  # Identifiant Freebox (email @free.fr ou login Freebox)
     freebox_password: Optional[str] = None
+    # Free Mobile (optionnel) — espace abonné mobile.free.fr
+    free_mobile_login: Optional[str] = None  # Identifiant Free Mobile (email ou numéro)
+    free_mobile_password: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),
@@ -200,6 +204,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 logger.warning("Provider Freebox non initialisé: %s", e)
         else:
             logger.debug("Freebox non configuré (FREEBOX_LOGIN / FREEBOX_PASSWORD absents)")
+
+    # Free Mobile (si identifiants présents)
+    if FreeMobileProvider.PROVIDER_ID in PROVIDERS:
+        if settings.free_mobile_login and settings.free_mobile_password:
+            try:
+                logger.info("Initialisation du provider Free Mobile...")
+                free_mobile_path = base_path / "free_mobile"
+                free_mobile_path.mkdir(parents=True, exist_ok=True)
+                downloaders[FreeMobileProvider.PROVIDER_ID] = FreeMobileProvider(
+                    login=settings.free_mobile_login,
+                    password=settings.free_mobile_password,
+                    download_path=free_mobile_path,
+                    headless=settings.selenium_headless,
+                    timeout=settings.selenium_timeout,
+                    browser=settings.selenium_browser,
+                    firefox_profile_path=settings.firefox_profile_path,
+                    chrome_user_data_dir=settings.selenium_chrome_profile_dir,
+                    keep_browser_open=settings.selenium_keep_browser_open,
+                )
+                logger.info("Provider Free Mobile initialisé avec succès")
+            except Exception as e:
+                logger.warning("Provider Free Mobile non initialisé: %s", e)
+        else:
+            logger.debug("Free Mobile non configuré (FREE_MOBILE_LOGIN / FREE_MOBILE_PASSWORD absents)")
 
     yield
 
