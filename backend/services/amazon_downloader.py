@@ -1189,13 +1189,28 @@ class AmazonInvoiceDownloader:
         return None
 
     def _get_order_id_from_element(self, order_element: Any, fallback_index: int) -> str:
-        """Retourne l'identifiant de commande (data-order-id ou fallback)."""
+        """Retourne l'identifiant de commande Amazon (id réel si possible, sinon fallback)."""
+        # 1) Attribut data-order-id explicite (cas idéal)
         try:
             oid = order_element.get_attribute("data-order-id")
             if oid and oid.strip():
                 return oid.strip()
         except Exception:
             pass
+
+        # 2) Numéro de commande dans le texte (ex: 402-7337523-0543547)
+        try:
+            text = (order_element.text or "").strip()
+            if text:
+                import re
+
+                m = re.search(r"\b\d{3}-\d{7}-\d{7}\b", text)
+                if m:
+                    return m.group(0)
+        except Exception:
+            pass
+
+        # 3) Attributs id / data-order-id contenant "order"
         try:
             for attr in ("id", "data-order-id"):
                 val = order_element.get_attribute(attr) or ""
@@ -1203,6 +1218,8 @@ class AmazonInvoiceDownloader:
                     return val
         except Exception:
             pass
+
+        # 4) Fallback stable mais peu précis
         return f"order_{fallback_index}"
 
     def _count_existing_pdfs(self) -> int:
@@ -1371,6 +1388,10 @@ class AmazonInvoiceDownloader:
                 logger.warning("Commande #%s: URL facture non trouvee dans le popover", order_index)
                 return None
 
+            if not force_redownload and self.registry.is_downloaded_by_url(PROVIDER_AMAZON, invoice_url):
+                logger.info("Commande #%s: facture deja telechargee (meme URL), skip", order_index)
+                return None
+
             logger.info("Commande #%s: telechargement de la facture...", order_index)
             filename = self._download_pdf_from_url(
                 invoice_url, order_index, order_id=oid, invoice_date=invoice_date
@@ -1381,6 +1402,7 @@ class AmazonInvoiceDownloader:
                     oid,
                     filename,
                     invoice_date=invoice_date.isoformat() if invoice_date else None,
+                    invoice_url=invoice_url,
                 )
                 logger.info("Commande #%s: OK - %s", order_index, filename)
             else:

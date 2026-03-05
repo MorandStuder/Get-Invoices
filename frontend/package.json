@@ -1,5 +1,5 @@
 {
-  "name": "amazon-invoice-downloader-frontend",
+  "name": "invoice-downloader-frontend",
   "version": "1.0.0",
   "private": true,
   "dependencies": {

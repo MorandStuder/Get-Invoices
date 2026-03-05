@@ -9,7 +9,7 @@ Set-Location -Path $scriptRoot -ErrorAction SilentlyContinue
 
 # Vérifier que nous sommes dans le bon dossier
 if (-not (Test-Path ".\backend\main.py")) {
-    Write-Host "ERREUR: Ce script doit etre execute depuis la racine du projet Get-Invoices" -ForegroundColor Red
+    Write-Host "ERREUR: Ce script doit etre execute depuis la racine du projet Invoice Downloader" -ForegroundColor Red
     exit 1
 }
 
@@ -39,7 +39,7 @@ if (-not $SingleWindow) {
 }
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Amazon Invoice Downloader - Startup  " -ForegroundColor Cyan
+Write-Host "  Invoice Downloader - Startup  " -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 if (-not $SingleWindow) {
     Write-Host "  (Pour tout garder dans ce terminal: .\start.ps1 -SingleWindow ou START_SINGLE_WINDOW=true dans .env)" -ForegroundColor Gray
@@ -134,7 +134,7 @@ if ($SingleWindow) {
         # Lancer via cmd pour eviter que le stderr d'uvicorn (logs INFO) declenche NativeCommandError dans PowerShell
         cmd /c "python -m uvicorn backend.main:app --host 0.0.0.0 --port $port 2>&1" | Tee-Object -FilePath $logFile
     } -ArgumentList $PWD.Path, $backendPort, (Join-Path $PWD $backendLog), $jobPath, $jobVirtualEnv
-    Start-Sleep -Seconds 8
+    Start-Sleep -Seconds 15
 } else {
     # Mode 3 fenetres : backend dans une nouvelle fenetre (pour voir les logs)
     Write-Host "-> Demarrage du backend FastAPI (port $backendPort) dans une nouvelle fenetre..." -ForegroundColor Yellow
@@ -153,9 +153,9 @@ python -m uvicorn backend.main:app --host 0.0.0.0 --port $backendPort --reload
     Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendScript
 }
 
-# Attendre que le backend demarre (lifespan peut prendre 10-20 s)
-Write-Host "Attente du demarrage du backend (jusqu'a 60 s)..." -ForegroundColor Yellow
-$maxRetries = 60
+# Attendre que le backend demarre (lifespan + chargement providers peut prendre 15-25 s)
+Write-Host "Attente du demarrage du backend (jusqu'a 90 s)..." -ForegroundColor Yellow
+$maxRetries = 90
 $retries = 0
 $backendReady = $false
 $backendUrl = "http://127.0.0.1:$backendPort/"
@@ -179,7 +179,7 @@ while ($retries -lt $maxRetries) {
 Write-Host ""
 
 if (-not $backendReady) {
-    Write-Host "ERREUR: Le backend n'a pas repondu a temps." -ForegroundColor Red
+    Write-Host "ERREUR: Le backend n'a pas repondu a temps (${maxRetries}s)." -ForegroundColor Red
     if ($SingleWindow -and $backendLog) {
         Write-Host "  - Consultez le log du backend pour l'erreur: $backendLog" -ForegroundColor Yellow
     }
@@ -195,12 +195,12 @@ Write-Host ""
 if ($SingleWindow) {
     Write-Host "-> Demarrage du frontend React (port 3000) dans cette fenetre..." -ForegroundColor Yellow
     Write-Host "   (Backend en arriere-plan ; logs: logs\backend.log)" -ForegroundColor Gray
-    Write-Host "   Pour arreter: Ctrl+C (backend sera arrete aussi)" -ForegroundColor Gray
+    Write-Host "   Ouvrez http://localhost:3000 dans votre navigateur quand le frontend est pret." -ForegroundColor Gray
+    Write-Host "   Pour arreter: Ctrl+C" -ForegroundColor Gray
     Write-Host ""
     $env:BROWSER = 'none'
     $rootDir = Get-Location
     Set-Location "$PWD\frontend"
-    Start-Job -ScriptBlock { Start-Sleep -Seconds 10; Start-Process 'http://localhost:3000' } | Out-Null
     try {
         npm start
     } finally {
@@ -268,12 +268,13 @@ Write-Host "  - Frontend:      http://localhost:3000" -ForegroundColor Green
 Write-Host "  - Backend API:   http://localhost:$backendPort" -ForegroundColor Green
 Write-Host "  - API Docs:      http://localhost:$backendPort/docs" -ForegroundColor Green
 Write-Host ""
-Write-Host "Pour arreter l'application, fermez les fenetres PowerShell du backend et du frontend" -ForegroundColor Yellow
+Write-Host "Ouvrez http://localhost:3000 dans votre navigateur (frontend peut prendre 30 s a compiler)." -ForegroundColor Yellow
+Write-Host "Pour arreter: fermez les fenetres PowerShell du backend et du frontend, ou .\stop.ps1" -ForegroundColor Yellow
 Write-Host ""
 
-# Ouvrir le navigateur
-Write-Host 'Ouverture du navigateur...' -ForegroundColor Cyan
-Start-Sleep -Seconds 2
+# Ouvrir le navigateur une seule fois, apres que le frontend a eu le temps de demarrer
+Write-Host 'Ouverture du navigateur dans 15 s (attente compilation frontend)...' -ForegroundColor Cyan
+Start-Sleep -Seconds 15
 Start-Process 'http://localhost:3000'
 
 Write-Host ""

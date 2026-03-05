@@ -45,6 +45,15 @@ class InvoiceRegistry:
             self._data[provider] = []
         return self._data[provider]
 
+    def _normalize_invoice_url(self, url: str) -> str:
+        """Réduit l'URL pour comparaison (sans paramètres de session variables)."""
+        if not url or not isinstance(url, str):
+            return ""
+        u = url.strip().lower()
+        if "?" in u:
+            u = u.split("?")[0]
+        return u.rstrip("/")
+
     def is_downloaded(
         self,
         provider: str,
@@ -61,22 +70,52 @@ class InvoiceRegistry:
                 return True
         return False
 
+    def is_downloaded_by_url(
+        self,
+        provider: str,
+        invoice_url: str,
+        check_file_exists: bool = True,
+    ) -> bool:
+        """Retourne True si une facture avec cette URL (ou même base d'URL) est déjà enregistrée."""
+        self._load()
+        norm = self._normalize_invoice_url(invoice_url)
+        if not norm:
+            return False
+        for entry in self._entries(provider):
+            entry_url = entry.get("invoice_url") or ""
+            if self._normalize_invoice_url(entry_url) == norm:
+                if check_file_exists:
+                    path = self.download_path / entry.get("file_path", "")
+                    return path.exists()
+                return True
+        return False
+
     def add(
         self,
         provider: str,
         order_id: str,
         file_path: str,
         invoice_date: Optional[str] = None,
+        invoice_url: Optional[str] = None,
     ) -> None:
-        """Enregistre une facture téléchargée."""
+        """Enregistre une facture téléchargée (invoice_url optionnel pour dédoublonnage par URL)."""
         self._load()
-        # Éviter doublon
         entries = self._entries(provider)
         for e in entries:
             if e.get("order_id") == order_id:
                 e["file_path"] = file_path
                 e["invoice_date"] = invoice_date
                 e["downloaded_at"] = datetime.utcnow().isoformat() + "Z"
+                if invoice_url is not None:
+                    e["invoice_url"] = invoice_url
+                self._save()
+                return
+            if invoice_url and self._normalize_invoice_url(e.get("invoice_url") or "") == self._normalize_invoice_url(invoice_url):
+                e["order_id"] = order_id
+                e["file_path"] = file_path
+                e["invoice_date"] = invoice_date
+                e["downloaded_at"] = datetime.utcnow().isoformat() + "Z"
+                e["invoice_url"] = invoice_url
                 self._save()
                 return
         entries.append({
@@ -84,6 +123,7 @@ class InvoiceRegistry:
             "file_path": file_path,
             "invoice_date": invoice_date,
             "downloaded_at": datetime.utcnow().isoformat() + "Z",
+            **({"invoice_url": invoice_url} if invoice_url is not None else {}),
         })
         self._save()
 

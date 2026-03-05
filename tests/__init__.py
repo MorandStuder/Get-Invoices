@@ -1,2 +1,2 @@
-"""Tests pour le téléchargeur de factures Amazon."""
+"""Tests pour Invoice Downloader (téléchargeur de factures)."""
 

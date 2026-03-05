@@ -1,6 +1,6 @@
-# Téléchargeur de Factures Amazon
+# Invoice Downloader
 
-Programme automatisé pour télécharger vos factures Amazon. Ce projet comprend un backend FastAPI et un frontend React+TypeScript.
+Programme automatisé pour télécharger vos factures (Free, Free Mobile, Amazon…). Ce projet comprend un backend FastAPI et un frontend React+TypeScript.
 
 **Version 1.2 (V0)** — Connexion continue au navigateur, pagination des commandes, scripts et code nettoyés.
 
@@ -190,6 +190,17 @@ cd frontend
 $env:BROWSER="none"
 npm start
 ```
+
+### Tester le provider FNAC
+
+1. **Configurer** dans `.env` : `FNAC_LOGIN` et `FNAC_PASSWORD` (votre compte fnac.com).
+2. **Démarrer** le backend (ex. `.\start.ps1` ou `uvicorn backend.main:app --port 8000`).
+3. **Option A — Interface** : ouvrir http://localhost:3000, choisir le fournisseur « FNAC » puis lancer le téléchargement.
+4. **Option B — Script** : depuis la racine du projet :
+   ```powershell
+   python scripts/test_fnac.py --max 5
+   ```
+   (Limite à 5 factures ; les PDF sont enregistrés dans `./factures/fnac/`.)
 
 ### Dépannage
 

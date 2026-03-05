@@ -2,7 +2,7 @@
 # Usage: .\stop.ps1
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Amazon Invoice Downloader - Stop     " -ForegroundColor Cyan
+Write-Host "  Invoice Downloader - Stop     " -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 

@@ -1,4 +1,4 @@
 """
-Module backend pour le téléchargement de factures Amazon.
+Module backend pour Invoice Downloader (téléchargement de factures multi-fournisseurs).
 """
 

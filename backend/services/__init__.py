@@ -1,2 +1,2 @@
-"""Services pour le téléchargement de factures Amazon."""
+"""Services pour le téléchargement de factures (Invoice Downloader)."""
 

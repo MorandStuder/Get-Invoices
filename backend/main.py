@@ -1,5 +1,5 @@
 """
-Point d'entrée principal de l'API FastAPI (Get-Invoices V2 multi-fournisseurs).
+Point d'entrée principal de l'API FastAPI (Invoice Downloader — multi-fournisseurs).
 """
 import asyncio
 import json
@@ -31,6 +31,8 @@ from backend.providers import PROVIDERS, PROVIDER_LABELS
 from backend.providers.amazon import AmazonProvider
 from backend.providers.freebox import FreeboxProvider
 from backend.providers.free_mobile import FreeMobileProvider
+from backend.providers.fnac import FnacProvider
+from backend.providers.bouygues import BouyguesProvider
 
 # Racine du projet (où se trouve .env), quel que soit le répertoire de travail au démarrage
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -56,6 +58,12 @@ class Settings(BaseSettings):
     # Free Mobile (optionnel) — espace abonné mobile.free.fr
     free_mobile_login: Optional[str] = None  # Identifiant Free Mobile (email ou numéro)
     free_mobile_password: Optional[str] = None
+    # FNAC (optionnel) — espace client fnac.com
+    fnac_login: Optional[str] = None  # Email du compte FNAC
+    fnac_password: Optional[str] = None
+    # Bouygues Telecom (optionnel) — espace client Bouygues Telecom
+    bouygues_login: Optional[str] = None  # Identifiant Bouygues (email ou numéro de ligne)
+    bouygues_password: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),
@@ -88,17 +96,6 @@ class Settings(BaseSettings):
         if self.max_invoices <= 0:
             errors.append(f"MAX_INVOICES doit être positif, pas {self.max_invoices}")
 
-        if self.firefox_profile_path and self.selenium_browser != "firefox":
-            errors.append(
-                f"FIREFOX_PROFILE_PATH est défini mais SELENIUM_BROWSER='{self.selenium_browser}'. "
-                "Le profil Firefox sera ignoré."
-            )
-        if self.selenium_chrome_profile_dir and self.selenium_browser != "chrome":
-            errors.append(
-                f"SELENIUM_CHROME_PROFILE_DIR est défini mais SELENIUM_BROWSER='{self.selenium_browser}'. "
-                "Le profil Chrome sera ignoré."
-            )
-
         if errors:
             error_msg = "Erreurs de configuration détectées:\n" + "\n".join(f"  - {err}" for err in errors)
             raise ValueError(error_msg)
@@ -124,6 +121,8 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+# Debug activé pour les providers en cours de mise au point
+logging.getLogger("backend.providers.fnac").setLevel(logging.DEBUG)
 
 # Chargement des paramètres
 try:
@@ -151,13 +150,22 @@ downloaders: dict[str, Any] = {}
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Gestionnaire du cycle de vie de l'application.
-    Initialise les providers configurés (Amazon par défaut) avec répertoire par fournisseur.
+    Initialise les providers configurés avec répertoire par fournisseur.
     """
     global downloaders
     downloaders = {}
     base_path = Path(settings.download_path)
 
-    # Amazon : répertoire ./factures/amazon (ou DOWNLOAD_PATH/amazon)
+    browser = (settings.selenium_browser or "chrome").strip().lower()
+    if browser not in ("chrome", "firefox"):
+        browser = "chrome"
+    logger.info("Navigateur Selenium: %s (profil Chrome: %s)", browser, "oui" if settings.selenium_chrome_profile_dir and browser == "chrome" else "non")
+    if browser == "chrome" and settings.firefox_profile_path:
+        logger.debug("FIREFOX_PROFILE_PATH ignoré (SELENIUM_BROWSER=chrome)")
+    if browser == "firefox" and settings.selenium_chrome_profile_dir:
+        logger.debug("SELENIUM_CHROME_PROFILE_DIR ignoré (SELENIUM_BROWSER=firefox)")
+
+    # Provider Amazon : répertoire ./factures/amazon (ou DOWNLOAD_PATH/amazon)
     if AmazonProvider.PROVIDER_ID in PROVIDERS:
         try:
             logger.info("Initialisation du provider Amazon...")
@@ -170,7 +178,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 headless=settings.selenium_headless,
                 timeout=settings.selenium_timeout,
                 manual_mode=settings.selenium_manual_mode,
-                browser=settings.selenium_browser,
+                browser=browser,
                 firefox_profile_path=settings.firefox_profile_path,
                 chrome_user_data_dir=settings.selenium_chrome_profile_dir,
                 keep_browser_open=settings.selenium_keep_browser_open,
@@ -194,7 +202,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     download_path=freebox_path,
                     headless=settings.selenium_headless,
                     timeout=settings.selenium_timeout,
-                    browser=settings.selenium_browser,
+                    browser=browser,
                     firefox_profile_path=settings.firefox_profile_path,
                     chrome_user_data_dir=settings.selenium_chrome_profile_dir,
                     keep_browser_open=settings.selenium_keep_browser_open,
@@ -218,7 +226,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     download_path=free_mobile_path,
                     headless=settings.selenium_headless,
                     timeout=settings.selenium_timeout,
-                    browser=settings.selenium_browser,
+                    browser=browser,
                     firefox_profile_path=settings.firefox_profile_path,
                     chrome_user_data_dir=settings.selenium_chrome_profile_dir,
                     keep_browser_open=settings.selenium_keep_browser_open,
@@ -228,6 +236,54 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 logger.warning("Provider Free Mobile non initialisé: %s", e)
         else:
             logger.debug("Free Mobile non configuré (FREE_MOBILE_LOGIN / FREE_MOBILE_PASSWORD absents)")
+
+    # FNAC (si identifiants présents)
+    if FnacProvider.PROVIDER_ID in PROVIDERS:
+        if settings.fnac_login and settings.fnac_password:
+            try:
+                logger.info("Initialisation du provider FNAC...")
+                fnac_path = base_path / "fnac"
+                fnac_path.mkdir(parents=True, exist_ok=True)
+                downloaders[FnacProvider.PROVIDER_ID] = FnacProvider(
+                    login=settings.fnac_login,
+                    password=settings.fnac_password,
+                    download_path=fnac_path,
+                    headless=settings.selenium_headless,
+                    timeout=settings.selenium_timeout,
+                    browser=browser,
+                    firefox_profile_path=settings.firefox_profile_path,
+                    chrome_user_data_dir=settings.selenium_chrome_profile_dir,
+                    keep_browser_open=settings.selenium_keep_browser_open,
+                )
+                logger.info("Provider FNAC initialisé avec succès")
+            except Exception as e:
+                logger.warning("Provider FNAC non initialisé: %s", e)
+        else:
+            logger.debug("FNAC non configuré (FNAC_LOGIN / FNAC_PASSWORD absents)")
+
+    # Bouygues Telecom (si identifiants présents)
+    if BouyguesProvider.PROVIDER_ID in PROVIDERS:
+        if settings.bouygues_login and settings.bouygues_password:
+            try:
+                logger.info("Initialisation du provider Bouygues Telecom...")
+                bouygues_path = base_path / "bouygues"
+                bouygues_path.mkdir(parents=True, exist_ok=True)
+                downloaders[BouyguesProvider.PROVIDER_ID] = BouyguesProvider(
+                    login=settings.bouygues_login,
+                    password=settings.bouygues_password,
+                    download_path=bouygues_path,
+                    headless=settings.selenium_headless,
+                    timeout=settings.selenium_timeout,
+                    browser=browser,
+                    firefox_profile_path=settings.firefox_profile_path,
+                    chrome_user_data_dir=settings.selenium_chrome_profile_dir,
+                    keep_browser_open=settings.selenium_keep_browser_open,
+                )
+                logger.info("Provider Bouygues Telecom initialisé avec succès")
+            except Exception as e:
+                logger.warning("Provider Bouygues Telecom non initialisé: %s", e)
+        else:
+            logger.debug("Bouygues Telecom non configuré (BOUYGUES_LOGIN / BOUYGUES_PASSWORD absents)")
 
     yield
 
@@ -242,8 +298,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 # Initialisation de l'application (V2 : multi-fournisseurs)
 app = FastAPI(
-    title="Get-Invoices API",
-    description="API pour télécharger automatiquement les factures (Amazon, FNAC, Free, …)",
+    title="Invoice Downloader API",
+    description="API pour télécharger automatiquement les factures (Free, Free Mobile, Amazon…)",
     version="2.0.0",
     lifespan=lifespan
 )
@@ -269,7 +325,7 @@ async def root() -> StatusResponse:
     """Endpoint de statut de l'API."""
     return StatusResponse(
         status="ok",
-        message="API Get-Invoices (V2 multi-fournisseurs) opérationnelle"
+        message="API Invoice Downloader opérationnelle"
     )
 
 
@@ -289,6 +345,12 @@ async def list_providers() -> ProvidersResponse:
             )
         elif pid == "freebox":
             configured = bool(settings.freebox_login) and bool(settings.freebox_password)
+        elif pid == "free_mobile":
+            configured = bool(settings.free_mobile_login) and bool(settings.free_mobile_password)
+        elif pid == "fnac":
+            configured = bool(settings.fnac_login) and bool(settings.fnac_password)
+        elif pid == "bouygues":
+            configured = bool(settings.bouygues_login) and bool(settings.bouygues_password)
         if implemented:
             configured = configured or pid in downloaders
         providers_list.append(
@@ -409,12 +471,12 @@ async def download_invoices(
 
 @app.get("/api/status", response_model=StatusResponse)
 async def get_status() -> StatusResponse:
-    """Retourne le statut du téléchargeur (Amazon par défaut)."""
+    """Retourne le statut du téléchargeur."""
     downloader = _get_downloader("amazon")
     if not downloader:
         return StatusResponse(
             status="error",
-            message="Le téléchargeur Amazon n'est pas initialisé"
+            message="Le téléchargeur n'est pas initialisé"
         )
     try:
         if downloader.is_2fa_required():
@@ -437,7 +499,7 @@ async def get_status() -> StatusResponse:
 @app.post("/api/submit-otp", response_model=OTPResponse)
 async def submit_otp(request: OTPRequest) -> OTPResponse:
     """
-    Soumet un code OTP pour l'authentification à deux facteurs (Amazon).
+    Soumet un code OTP pour l'authentification à deux facteurs (2FA).
     """
     downloader = _get_downloader("amazon")
     if not downloader:
@@ -474,7 +536,7 @@ async def submit_otp(request: OTPRequest) -> OTPResponse:
 
 @app.get("/api/check-2fa", response_model=OTPResponse)
 async def check_2fa() -> OTPResponse:
-    """Vérifie si un code 2FA est requis (Amazon)."""
+    """Vérifie si un code 2FA est requis."""
     downloader = _get_downloader("amazon")
     if not downloader:
         raise HTTPException(

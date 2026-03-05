@@ -8,12 +8,16 @@ from backend.providers.base import InvoiceProviderProtocol, OrderInfo
 from backend.providers.amazon import AmazonProvider
 from backend.providers.freebox import FreeboxProvider
 from backend.providers.free_mobile import FreeMobileProvider
+from backend.providers.fnac import FnacProvider
+from backend.providers.bouygues import BouyguesProvider
 
 # Registre des providers implémentés : id -> classe
 PROVIDERS = {
     AmazonProvider.PROVIDER_ID: AmazonProvider,
     FreeboxProvider.PROVIDER_ID: FreeboxProvider,
     FreeMobileProvider.PROVIDER_ID: FreeMobileProvider,
+    FnacProvider.PROVIDER_ID: FnacProvider,
+    BouyguesProvider.PROVIDER_ID: BouyguesProvider,
 }
 
 # Providers prévus (affichage frontend) : id -> libellé
@@ -33,6 +37,8 @@ __all__ = [
     "AmazonProvider",
     "FreeboxProvider",
     "FreeMobileProvider",
+    "FnacProvider",
+    "BouyguesProvider",
     "PROVIDERS",
     "PROVIDER_LABELS",
 ]

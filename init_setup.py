@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script d'initialisation du projet Amazon Invoice Downloader.
+Script d'initialisation du projet Invoice Downloader.
 Crée la structure nécessaire et configure l'environnement.
 """
 import os
@@ -83,7 +83,7 @@ def install_node_dependencies() -> None:
 
 def main() -> None:
     """Fonction principale."""
-    print("🚀 Initialisation du projet Amazon Invoice Downloader\n")
+    print("🚀 Initialisation du projet Invoice Downloader\n")
     
     create_directories()
     check_env_file()
@@ -92,7 +92,7 @@ def main() -> None:
     
     print("\n✅ Initialisation terminée!")
     print("\nProchaines étapes:")
-    print("1. Créez un fichier .env avec vos identifiants Amazon")
+    print("1. Créez un fichier .env avec vos identifiants (Free, Free Mobile, Amazon…)")
     print("2. Lancez le backend: cd backend && uvicorn main:app --reload")
     print("3. Lancez le frontend: cd frontend && npm start")
 

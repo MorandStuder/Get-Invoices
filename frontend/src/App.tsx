@@ -161,8 +161,8 @@ const App: React.FC = () => {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>📦 Get-Invoices (V2)</h1>
-        <p className="subtitle">Téléchargez vos factures Amazon, FNAC, Free…</p>
+        <h1>📄 Invoice Downloader</h1>
+        <p className="subtitle">Téléchargez vos factures Free, Free Mobile, Amazon…</p>
       </header>
 
       <main className="App-main">
@@ -172,7 +172,7 @@ const App: React.FC = () => {
           <div className="otp-container">
             <div className="otp-form">
               <h2>🔐 Authentification à deux facteurs</h2>
-              <p>Amazon a demandé un code de vérification.</p>
+              <p>Un code de vérification a été demandé.</p>
               <p className="otp-instructions">
                 Entrez le code que vous avez reçu par SMS, email ou votre application d'authentification.
               </p>
