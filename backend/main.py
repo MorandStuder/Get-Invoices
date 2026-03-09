@@ -33,10 +33,53 @@ from backend.providers.freebox import FreeboxProvider
 from backend.providers.free_mobile import FreeMobileProvider
 from backend.providers.fnac import FnacProvider
 from backend.providers.bouygues import BouyguesProvider
+from backend.providers.orange import OrangeProvider
 
 # Racine du projet (où se trouve .env), quel que soit le répertoire de travail au démarrage
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
+_FRONTEND_URL = "http://localhost:3000"  # Frontend React (npm start)
+
+
+def _open_chrome(url: str) -> None:
+    """Ouvre Chrome sur l'URL donnée (Windows). Fallback sur le navigateur par défaut."""
+    import subprocess
+    chrome_paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ]
+    for chrome_path in chrome_paths:
+        if Path(chrome_path).exists():
+            try:
+                # Pas de --new-window : ouvre un onglet dans la fenêtre existante si Chrome est déjà ouvert
+                subprocess.Popen([chrome_path, url])
+                return
+            except Exception as e:
+                logging.getLogger(__name__).warning("Ouverture Chrome: %s", e)
+    import webbrowser
+    webbrowser.open(url)
+
+
+def _open_chrome_when_ready(url: str, max_wait: int = 60) -> None:
+    """Attend que l'URL réponde (polling), puis ouvre Chrome dessus."""
+    import threading
+    import urllib.request
+
+    def _poll_and_open() -> None:
+        import time
+        deadline = time.time() + max_wait
+        while time.time() < deadline:
+            try:
+                urllib.request.urlopen(url, timeout=2)
+                logging.getLogger(__name__).info("Frontend prêt, ouverture Chrome sur %s", url)
+                _open_chrome(url)
+                return
+            except Exception:
+                time.sleep(1)
+        logging.getLogger(__name__).warning("Frontend non disponible après %ds, ouverture quand même", max_wait)
+        _open_chrome(url)
+
+    threading.Thread(target=_poll_and_open, daemon=True).start()
 
 
 class Settings(BaseSettings):
@@ -64,6 +107,11 @@ class Settings(BaseSettings):
     # Bouygues Telecom (optionnel) — espace client Bouygues Telecom
     bouygues_login: Optional[str] = None  # Identifiant Bouygues (email ou numéro de ligne)
     bouygues_password: Optional[str] = None
+    # Orange (optionnel) — espace client orange.fr
+    orange_login: Optional[str] = None  # Email du compte Orange (informatif)
+    orange_invoices_url: Optional[str] = None  # URL complète de la page historique des factures
+    # Interface
+    start_single_window: bool = False  # Ouvrir Chrome sur l'UI au démarrage du backend
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),
@@ -261,6 +309,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             logger.debug("FNAC non configuré (FNAC_LOGIN / FNAC_PASSWORD absents)")
 
+    # Orange (si URL configurée)
+    if OrangeProvider.PROVIDER_ID in PROVIDERS:
+        if settings.orange_invoices_url:
+            try:
+                logger.info("Initialisation du provider Orange...")
+                orange_path = base_path / "orange"
+                orange_path.mkdir(parents=True, exist_ok=True)
+                downloaders[OrangeProvider.PROVIDER_ID] = OrangeProvider(
+                    login=settings.orange_login or "",
+                    invoices_url=settings.orange_invoices_url,
+                    download_path=orange_path,
+                    headless=settings.selenium_headless,
+                    timeout=settings.selenium_timeout,
+                    browser=browser,
+                    firefox_profile_path=settings.firefox_profile_path,
+                    chrome_user_data_dir=settings.selenium_chrome_profile_dir,
+                    keep_browser_open=settings.selenium_keep_browser_open,
+                )
+                logger.info("Provider Orange initialisé avec succès")
+            except Exception as e:
+                logger.warning("Provider Orange non initialisé: %s", e)
+        else:
+            logger.debug("Orange non configuré (ORANGE_INVOICES_URL absent)")
+
     # Bouygues Telecom (si identifiants présents)
     if BouyguesProvider.PROVIDER_ID in PROVIDERS:
         if settings.bouygues_login and settings.bouygues_password:
@@ -284,6 +356,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 logger.warning("Provider Bouygues Telecom non initialisé: %s", e)
         else:
             logger.debug("Bouygues Telecom non configuré (BOUYGUES_LOGIN / BOUYGUES_PASSWORD absents)")
+
+    # Ouvrir l'interface dans Chrome si demandé (attend que le frontend soit prêt)
+    if settings.start_single_window:
+        logger.info("START_SINGLE_WINDOW: attente frontend sur %s", _FRONTEND_URL)
+        _open_chrome_when_ready(_FRONTEND_URL)
 
     yield
 
@@ -351,6 +428,8 @@ async def list_providers() -> ProvidersResponse:
             configured = bool(settings.fnac_login) and bool(settings.fnac_password)
         elif pid == "bouygues":
             configured = bool(settings.bouygues_login) and bool(settings.bouygues_password)
+        elif pid == "orange":
+            configured = bool(settings.orange_invoices_url)
         if implemented:
             configured = configured or pid in downloaders
         providers_list.append(
@@ -429,6 +508,15 @@ async def download_invoices(
             logger.error("Erreur lors du téléchargement: %s", e)
             logger.debug("Traceback: %s", traceback.format_exc())
             await progress_queue.put(("error", str(e), None, None))
+        finally:
+            # Libérer le driver après chaque téléchargement pour éviter les conflits
+            # de profil Chrome si plusieurs fournisseurs sont utilisés successivement
+            try:
+                if hasattr(downloader, 'driver') and downloader.driver is not None:
+                    await downloader.close()
+                    logger.info("Driver %s libéré après téléchargement", provider_id)
+            except Exception as e:
+                logger.debug("Fermeture driver %s: %s", provider_id, e)
 
     logger.info(
         "Démarrage téléchargement provider=%s max_invoices=%s year=%s month=%s otp=%s",
@@ -544,12 +632,13 @@ async def check_2fa() -> OTPResponse:
             detail="Le téléchargeur n'est pas initialisé"
         )
     requires_otp = downloader.is_2fa_required()
-    
     return OTPResponse(
         success=not requires_otp,
         message="Code 2FA requis" if requires_otp else "Aucun code 2FA requis",
         requires_otp=requires_otp
     )
+
+
 
 
 if __name__ == "__main__":

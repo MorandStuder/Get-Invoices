@@ -5,7 +5,6 @@ Connexion : https://www.fnac.com/ puis « Me connecter ».
 """
 from __future__ import annotations
 
-import random
 import re
 import time
 from datetime import date as date_type
@@ -14,14 +13,12 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.service import Service as FirefoxService
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.firefox import GeckoDriverManager
 
@@ -41,7 +38,6 @@ _MOIS_FR = {
 }
 
 FNAC_BASE_URL = "https://www.fnac.com"
-FNAC_LOGIN_URL = "https://www.fnac.com/"
 FNAC_DIRECT_LOGIN_URL = "https://secure.fnac.com/account/order"
 # Pages commandes à essayer après connexion (ordre de priorité)
 FNAC_ORDERS_PATHS = [
@@ -194,7 +190,10 @@ class FnacProvider:
     def _is_logged_in(self) -> bool:
         if not self.driver:
             return False
-        url = (self.driver.current_url or "").lower()
+        try:
+            url = (self.driver.current_url or "").lower()
+        except Exception:
+            return False
         if "fnac.com" not in url:
             return False
         # Pages de l'espace client authentifié (accès uniquement si session active)
@@ -222,43 +221,6 @@ class FnacProvider:
             pass
         return False
 
-    def _find_visible_input(self, selectors: List[str]) -> Optional[Any]:
-        """Retourne le premier champ visible et actif correspondant à l'un des sélecteurs."""
-        for sel in selectors:
-            try:
-                for el in self.driver.find_elements(By.CSS_SELECTOR, sel):  # type: ignore[union-attr]
-                    if el.is_displayed() and el.is_enabled() and el.get_attribute("type") != "hidden":
-                        return el
-            except Exception:
-                continue
-        return None
-
-    def _click_submit(self) -> bool:
-        """Clique sur le premier bouton submit visible."""
-        for sel in ["button[type='submit']", "input[type='submit']", "[data-testid='login-submit']"]:
-            try:
-                btn = self.driver.find_element(By.CSS_SELECTOR, sel)  # type: ignore[union-attr]
-                if btn.is_displayed():
-                    btn.click()
-                    return True
-            except NoSuchElementException:
-                continue
-        for btn in self.driver.find_elements(By.TAG_NAME, "button"):  # type: ignore[union-attr]
-            txt = (btn.text or "").lower()
-            if btn.is_displayed() and ("connecter" in txt or "continuer" in txt or "suivant" in txt or "valider" in txt):
-                btn.click()
-                return True
-        return False
-
-    def _type_human(self, element: Any, text: str) -> None:
-        """Tape du texte caractère par caractère avec délais aléatoires (anti-bot)."""
-        element.clear()
-        time.sleep(random.uniform(0.1, 0.3))
-        for ch in text:
-            element.send_keys(ch)
-            time.sleep(random.uniform(0.05, 0.18))
-        time.sleep(random.uniform(0.3, 0.7))
-
     async def login(self, otp_code: Optional[str] = None) -> bool:
         try:
             if not self.driver:
@@ -268,125 +230,33 @@ class FnacProvider:
                 except Exception as e:
                     err_msg = str(e).lower()
                     if "already in use" in err_msg or "user data directory" in err_msg or "profile" in err_msg:
-                        logger.warning(
-                            "FNAC: profil Chrome verrouillé (%s). Relance sans profil.",
-                            e,
-                        )
+                        logger.warning("FNAC: profil Chrome verrouillé (%s). Relance sans profil.", e)
                         self.driver = self._setup_driver(use_profile=False)
                     else:
                         raise
                 logger.info("FNAC: navigateur ouvert.")
-            # Laisser Chrome charger la session du profil (restauration des onglets)
-            time.sleep(5)
-            if self._is_logged_in():
-                logger.info("FNAC: session profil détectée (déjà connecté, URL: %s)", self.driver.current_url[:80])
-                return True
-            # Chrome peut encore être en train de restaurer — attendre un peu plus
-            time.sleep(4)
-            if self._is_logged_in():
-                logger.info("FNAC: session profil détectée après attente sup. (URL: %s)", self.driver.current_url[:80])
-                return True
 
-            # Essayer d'abord l'URL de connexion directe, puis la homepage
-            for start_url in [FNAC_DIRECT_LOGIN_URL, FNAC_LOGIN_URL]:
-                try:
-                    self.driver.get(start_url)
-                except Exception as e:
-                    logger.warning("FNAC: chargement %s interrompu (%s), on continue", start_url[:60], e)
-                time.sleep(3)
-                self._dismiss_consent_banner()
-                time.sleep(1)
-                logger.info("FNAC: chargement %s — URL actuelle: %s", start_url, self.driver.current_url[:80])
+            # Naviguer vers la page des commandes
+            try:
+                self.driver.get(FNAC_DIRECT_LOGIN_URL)
+            except Exception as e:
+                logger.warning("FNAC: chargement %s interrompu (%s)", FNAC_DIRECT_LOGIN_URL, e)
 
-                # La session du profil peut avoir redirigé vers une page connectée
+            logger.info("FNAC: en attente de connexion manuelle sur %s", FNAC_DIRECT_LOGIN_URL)
+            logger.info("FNAC: connectez-vous dans le navigateur (5 minutes max).")
+
+            max_wait = 300  # 5 minutes
+            interval = 5
+            elapsed = 0
+            while elapsed < max_wait:
+                time.sleep(interval)
+                elapsed += interval
                 if self._is_logged_in():
-                    logger.info("FNAC: session active détectée après redirection vers %s", self.driver.current_url[:80])
+                    logger.info("FNAC: connexion détectée (URL: %s)", self.driver.current_url[:80])
                     return True
+                logger.info("FNAC: attente connexion... (%ds/%ds)", elapsed, max_wait)
 
-                # Cliquer sur "Me connecter" si la page d'accueil est chargée
-                if start_url == FNAC_LOGIN_URL:
-                    clicked = False
-                    for selector in [
-                        (By.LINK_TEXT, "Me connecter"),
-                        (By.PARTIAL_LINK_TEXT, "connecter"),
-                        (By.CSS_SELECTOR, "[data-testid*='login'], [data-testid*='connexion'], a[href*='connexion'], a[href*='login']"),
-                    ]:
-                        try:
-                            for el in self.driver.find_elements(selector[0], selector[1]):
-                                if el.is_displayed() and "connecter" in (el.text or el.get_attribute("href") or "").lower():
-                                    el.click()
-                                    time.sleep(3)
-                                    clicked = True
-                                    break
-                            if clicked:
-                                break
-                        except Exception:
-                            continue
-
-                email_selectors = [
-                    "input[name='email']",
-                    "input[name='login']",
-                    "input[id='email']",
-                    "input[type='email']",
-                    "input[autocomplete='username']",
-                    "input[autocomplete='email']",
-                    "input[placeholder*='mail']",
-                ]
-                password_selectors = [
-                    "input[name='password']",
-                    "input[name='pass']",
-                    "input[id='password']",
-                    "input[type='password']",
-                    "input[autocomplete='current-password']",
-                ]
-
-                email_input = self._find_visible_input(email_selectors)
-                if not email_input:
-                    logger.info("FNAC: champ email non trouvé sur %s, essai URL suivante...", start_url[:60])
-                    continue
-
-                logger.info("FNAC: champ email trouvé, saisie...")
-                self._type_human(email_input, self._login)
-
-                # Vérifier si le mot de passe est déjà visible (formulaire en une seule étape)
-                pass_input = self._find_visible_input(password_selectors)
-
-                if not pass_input:
-                    # Formulaire en deux étapes : soumettre l'email d'abord
-                    logger.info("FNAC: formulaire en 2 étapes, soumission email...")
-                    self._click_submit()
-                    time.sleep(3)
-                    pass_input = self._find_visible_input(password_selectors)
-
-                if not pass_input:
-                    logger.warning("FNAC: champ mot de passe non trouvé après soumission email. URL: %s", self.driver.current_url[:80])
-                    continue
-
-                logger.info("FNAC: champ mot de passe trouvé, saisie...")
-                self._type_human(pass_input, self._password)
-                self._click_submit()
-
-                # Attendre la redirection post-connexion
-                for delay in [4, 3, 3]:
-                    time.sleep(delay)
-                    if self._is_logged_in():
-                        logger.info("FNAC: connexion réussie")
-                        return True
-
-                url_now = (self.driver.current_url or "")[:80]
-                logger.warning("FNAC: connexion échouée après soumission. URL: %s", url_now)
-                # Si page contient un captcha ou message d'erreur, le logger
-                try:
-                    body = self.driver.page_source.lower()
-                    if "captcha" in body or "robot" in body or "vérification" in body:
-                        logger.warning("FNAC: détection robot/captcha sur la page de connexion.")
-                    elif "mot de passe" in body and ("incorrect" in body or "invalide" in body or "erroné" in body):
-                        logger.warning("FNAC: identifiants incorrects.")
-                except Exception:
-                    pass
-                # Ne pas essayer la seconde URL si la première a trouvé les champs
-                break
-
+            logger.warning("FNAC: timeout — connexion non détectée après %ds", max_wait)
             return False
         except Exception as e:
             logger.error("FNAC login: %s", e, exc_info=True)
@@ -763,6 +633,39 @@ class FnacProvider:
             )
         return out
 
+    def _wait_for_browser_download(self, existing_pdfs: set, max_wait: int = 30) -> Optional[Path]:
+        """Attend qu'un nouveau PDF apparaisse dans download_path (hors .crdownload). Retourne le Path ou None."""
+        deadline = time.time() + max_wait
+        while time.time() < deadline:
+            time.sleep(2)
+            # Vérifier qu'aucun .crdownload n'est encore en cours
+            in_progress = list(self.download_path.glob("*.crdownload"))
+            new_pdfs = set(self.download_path.glob("*.pdf")) - existing_pdfs
+            if new_pdfs and not in_progress:
+                return sorted(new_pdfs, key=lambda f: f.stat().st_mtime)[-1]
+        # Dernière chance : nouveau PDF même si .crdownload encore là
+        new_pdfs = set(self.download_path.glob("*.pdf")) - existing_pdfs
+        if new_pdfs:
+            return sorted(new_pdfs, key=lambda f: f.stat().st_mtime)[-1]
+        return None
+
+    def _rename_browser_download(self, path: Path, order_id: str, invoice_date: Optional[date_type] = None) -> str:
+        """Renomme un PDF téléchargé par le navigateur en suivant la convention fnac_{date}_{id}.pdf."""
+        short_id = re.sub(r"[^\w\-]", "_", order_id)[:30]
+        if invoice_date:
+            new_name = f"fnac_{invoice_date.isoformat()}_{short_id}.pdf"
+        else:
+            new_name = f"fnac_{short_id}.pdf"
+        new_name = re.sub(r"[^\w\-.]", "_", new_name)[:80]
+        new_path = path.parent / new_name
+        if path.name != new_name:
+            try:
+                path.rename(new_path)
+            except Exception as e:
+                logger.warning("FNAC: impossible de renommer %s -> %s : %s", path.name, new_name, e)
+                return path.name
+        return new_name
+
     def _get_browser_session(self) -> Any:
         import requests
         session = requests.Session()
@@ -931,10 +834,9 @@ class FnacProvider:
 
                     # Cas 4b : le clic sur bouton a déclenché un download navigateur direct
                     if not invoice_pdf_url:
-                        time.sleep(3)
-                        new_pdfs = set(self.download_path.glob("*.pdf")) - existing_pdfs
-                        if new_pdfs:
-                            fname = sorted(new_pdfs, key=lambda f: f.stat().st_mtime)[-1].name
+                        downloaded_path = self._wait_for_browser_download(existing_pdfs, max_wait=30)
+                        if downloaded_path:
+                            fname = self._rename_browser_download(downloaded_path, order.order_id, order.invoice_date)
                             self.registry.add(
                                 PROVIDER_FNAC, order.order_id, fname,
                                 invoice_date=order.invoice_date.isoformat() if order.invoice_date else None,
@@ -959,15 +861,9 @@ class FnacProvider:
                 existing_before_browser = set(self.download_path.glob("*.pdf"))
                 try:
                     self.driver.get(invoice_pdf_url)  # type: ignore[union-attr]
-                    # Attendre jusqu'à 15s que Chrome télécharge le PDF
-                    new_after_browser: set = set()
-                    for _ in range(5):
-                        time.sleep(3)
-                        new_after_browser = set(self.download_path.glob("*.pdf")) - existing_before_browser
-                        if new_after_browser:
-                            break
-                    if new_after_browser:
-                        filename = sorted(new_after_browser, key=lambda f: f.stat().st_mtime)[-1].name
+                    downloaded_path = self._wait_for_browser_download(existing_before_browser, max_wait=30)
+                    if downloaded_path:
+                        filename = self._rename_browser_download(downloaded_path, order.order_id, order.invoice_date)
                         logger.info("FNAC: facture via browser download: %s", filename)
                 except Exception as e:
                     logger.warning("FNAC: browser download fallback: %s", e)

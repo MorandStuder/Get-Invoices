@@ -1313,7 +1313,7 @@ class AmazonInvoiceDownloader:
                 filename = f"amazon_{invoice_date.isoformat()}_{safe_id}.pdf"
             else:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"facture_{order_index}_{timestamp}.pdf"
+                filename = f"amazon_{order_index}_{timestamp}.pdf"
 
             filepath = self.download_path / filename
             filepath.write_bytes(response.content)
