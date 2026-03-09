@@ -1,9 +1,11 @@
 """
 Tests pour l'API FastAPI (V2 multi-fournisseurs).
 """
+
+from unittest.mock import patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch
 
 from backend.main import app, downloaders
 
@@ -78,4 +80,3 @@ def test_submit_otp_returns_503_when_downloader_unavailable(client: TestClient) 
     with patch("backend.main._get_downloader", return_value=None):
         response = client.post("/api/submit-otp", json={"otp_code": "123456"})
     assert response.status_code == 503
-

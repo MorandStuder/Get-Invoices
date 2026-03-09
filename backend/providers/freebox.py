@@ -2,8 +2,10 @@
 Provider Freebox (Espace abonné — adsl.free.fr).
 Téléchargement des factures depuis l'espace client Freebox.
 """
+
 from __future__ import annotations
 
+import logging
 import re
 import time
 from datetime import date as date_type
@@ -11,22 +13,20 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.firefox import GeckoDriverManager
 
 from backend.providers.base import OrderInfo
 from backend.services.invoice_registry import InvoiceRegistry
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +34,21 @@ PROVIDER_FREEBOX = "freebox"
 
 # Mois FR pour le parsing des titres de facture Freebox
 _MOIS_FR = {
-    "janvier": 1, "février": 2, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5,
-    "juin": 6, "juillet": 7, "août": 8, "aout": 8, "septembre": 9,
-    "octobre": 10, "novembre": 11, "décembre": 12, "decembre": 12,
+    "janvier": 1,
+    "février": 2,
+    "fevrier": 2,
+    "mars": 3,
+    "avril": 4,
+    "mai": 5,
+    "juin": 6,
+    "juillet": 7,
+    "août": 8,
+    "aout": 8,
+    "septembre": 9,
+    "octobre": 10,
+    "novembre": 11,
+    "décembre": 12,
+    "decembre": 12,
 }
 
 # URLs Espace abonné Freebox (adsl.free.fr et moncompte.free.fr)
@@ -109,7 +121,9 @@ class FreeboxProvider:
         }
         opts.add_experimental_option("prefs", prefs)
         if self.chrome_user_data_dir:
-            opts.add_argument(f"--user-data-dir={Path(self.chrome_user_data_dir).resolve()}")
+            opts.add_argument(
+                f"--user-data-dir={Path(self.chrome_user_data_dir).resolve()}"
+            )
         driver_path = ChromeDriverManager().install()
         service = ChromeService(driver_path)
         return webdriver.Chrome(service=service, options=opts)
@@ -123,8 +137,12 @@ class FreeboxProvider:
         else:
             profile = FirefoxProfile()
             profile.set_preference("browser.download.folderList", 2)
-            profile.set_preference("browser.download.dir", str(self.download_path.absolute()))
-            profile.set_preference("browser.helperApps.neverAsk.saveToDisk", "application/pdf")
+            profile.set_preference(
+                "browser.download.dir", str(self.download_path.absolute())
+            )
+            profile.set_preference(
+                "browser.helperApps.neverAsk.saveToDisk", "application/pdf"
+            )
             opts.profile = profile
         driver_path = GeckoDriverManager().install()
         return webdriver.Firefox(service=FirefoxService(driver_path), options=opts)
@@ -141,7 +159,9 @@ class FreeboxProvider:
             if "session invalide" in body:
                 return False
             # Formulaire de login encore visible ?
-            pwd_fields = self.driver.find_elements(By.CSS_SELECTOR, "input[type='password']")
+            pwd_fields = self.driver.find_elements(
+                By.CSS_SELECTOR, "input[type='password']"
+            )
             if pwd_fields and any(f.is_displayed() for f in pwd_fields):
                 if "se connecter" in body:
                     return False
@@ -162,7 +182,10 @@ class FreeboxProvider:
             for login_url in FREEBOX_LOGIN_URLS:
                 self.driver.get(login_url)
                 time.sleep(3)
-                if "home.pl" not in self.driver.current_url and "free.fr" in self.driver.current_url:
+                if (
+                    "home.pl" not in self.driver.current_url
+                    and "free.fr" in self.driver.current_url
+                ):
                     time.sleep(2)
 
                 # Sélecteurs pour le champ identifiant (adsl.free.fr, moncompte.free.fr)
@@ -208,15 +231,22 @@ class FreeboxProvider:
                 # XPath de secours : input précédé d'un label contenant "dentifiant" ou "login"
                 if not login_input:
                     try:
-                        for el in self.driver.find_elements(By.XPATH, "//input[@type='text' or not(@type)]"):
-                            if el.is_displayed() and el.get_attribute("type") != "search":
+                        for el in self.driver.find_elements(
+                            By.XPATH, "//input[@type='text' or not(@type)]"
+                        ):
+                            if (
+                                el.is_displayed()
+                                and el.get_attribute("type") != "search"
+                            ):
                                 login_input = el
                                 break
                     except Exception:
                         pass
                 if not pass_input:
                     try:
-                        pass_input = self.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+                        pass_input = self.driver.find_element(
+                            By.CSS_SELECTOR, "input[type='password']"
+                        )
                     except NoSuchElementException:
                         pass
                 if login_input and pass_input:
@@ -261,12 +291,16 @@ class FreeboxProvider:
                 except NoSuchElementException:
                     continue
             if not submit:
-                submit = self.driver.find_element(By.CSS_SELECTOR, "input[type='submit'], button[type='submit']")
+                submit = self.driver.find_element(
+                    By.CSS_SELECTOR, "input[type='submit'], button[type='submit']"
+                )
             submit.click()
             time.sleep(4)
 
             if not self._is_logged_in():
-                logger.warning("Freebox: connexion peut avoir échoué (vérifier identifiants ou 2FA)")
+                logger.warning(
+                    "Freebox: connexion peut avoir échoué (vérifier identifiants ou 2FA)"
+                )
                 return False
             logger.info("Freebox: connexion réussie")
             return True
@@ -281,7 +315,9 @@ class FreeboxProvider:
         if self._is_logged_in() and "free.fr" in self.driver.current_url:
             already = self.list_orders_or_invoices()
             if already:
-                logger.info("Freebox: déjà sur la page des factures (%s lien(s))", len(already))
+                logger.info(
+                    "Freebox: déjà sur la page des factures (%s lien(s))", len(already)
+                )
                 return True
         # Sinon naviguer vers une page de facturation
         for path in FREEBOX_FACTURATION_PATHS:
@@ -334,6 +370,7 @@ class FreeboxProvider:
     def list_orders_or_invoices(self) -> List[OrderInfo]:
         """Liste les factures visibles (liens facture.pdf.pl ou PDF / téléchargement) avec date parsée."""
         from urllib.parse import urljoin
+
         out: List[OrderInfo] = []
         if not self.driver:
             return out
@@ -362,7 +399,14 @@ class FreeboxProvider:
                     title = (a.get_attribute("title") or a.text or "").strip()
                     inv_date = self._parse_invoice_date_from_title(title)
                     order_id = f"freebox_inv_{i}_{hash(href) % 100000}"
-                    out.append(OrderInfo(order_id=order_id, invoice_url=href, invoice_date=inv_date, raw_element=a))
+                    out.append(
+                        OrderInfo(
+                            order_id=order_id,
+                            invoice_url=href,
+                            invoice_date=inv_date,
+                            raw_element=a,
+                        )
+                    )
                 if out:
                     break
         except Exception as e:
@@ -380,7 +424,10 @@ class FreeboxProvider:
     ) -> List[OrderInfo]:
         """Filtre les factures par année / mois / plage (comme Amazon)."""
         from datetime import datetime
-        if not any([year is not None, month is not None, months, date_start_str, date_end_str]):
+
+        if not any(
+            [year is not None, month is not None, months, date_start_str, date_end_str]
+        ):
             return orders
         if date_start_str and date_end_str:
             try:
@@ -388,9 +435,19 @@ class FreeboxProvider:
                 end_d = datetime.strptime(date_end_str, "%Y-%m-%d").date()
             except ValueError:
                 return orders
-            return [o for o in orders if o.invoice_date and start_d <= o.invoice_date <= end_d]
+            return [
+                o
+                for o in orders
+                if o.invoice_date and start_d <= o.invoice_date <= end_d
+            ]
         if year is not None and months:
-            return [o for o in orders if o.invoice_date and o.invoice_date.year == year and o.invoice_date.month in months]
+            return [
+                o
+                for o in orders
+                if o.invoice_date
+                and o.invoice_date.year == year
+                and o.invoice_date.month in months
+            ]
         out: List[OrderInfo] = []
         for o in orders:
             if not o.invoice_date:
@@ -404,13 +461,18 @@ class FreeboxProvider:
 
     def _get_browser_session(self) -> Any:
         import requests
+
         session = requests.Session()
         for c in self.driver.get_cookies():
             session.cookies.set(c["name"], c["value"], domain=c.get("domain", ""))
-        session.headers["User-Agent"] = self.driver.execute_script("return navigator.userAgent;")
+        session.headers["User-Agent"] = self.driver.execute_script(
+            "return navigator.userAgent;"
+        )
         return session
 
-    def _download_pdf(self, url: str, order_id: str, invoice_date: Optional[date_type] = None) -> Optional[str]:
+    def _download_pdf(
+        self, url: str, order_id: str, invoice_date: Optional[date_type] = None
+    ) -> Optional[str]:
         try:
             session = self._get_browser_session()
             r = session.get(url, timeout=30, allow_redirects=True)
@@ -440,7 +502,11 @@ class FreeboxProvider:
         invoice_date: Optional[date_type] = None,
         force_redownload: bool = False,
     ) -> Optional[str]:
-        oid = order_id or (order_or_id.order_id if isinstance(order_or_id, OrderInfo) else str(order_or_id))
+        oid = order_id or (
+            order_or_id.order_id
+            if isinstance(order_or_id, OrderInfo)
+            else str(order_or_id)
+        )
         if not force_redownload and self.registry.is_downloaded(PROVIDER_FREEBOX, oid):
             return None
         url = None
@@ -452,7 +518,12 @@ class FreeboxProvider:
             return None
         filename = self._download_pdf(url, oid, invoice_date)
         if filename:
-            self.registry.add(PROVIDER_FREEBOX, oid, filename, invoice_date=invoice_date.isoformat() if invoice_date else None)
+            self.registry.add(
+                PROVIDER_FREEBOX,
+                oid,
+                filename,
+                invoice_date=invoice_date.isoformat() if invoice_date else None,
+            )
         return filename
 
     async def download_invoices(
@@ -475,7 +546,9 @@ class FreeboxProvider:
 
         orders = self.list_orders_or_invoices()
         if not orders:
-            logger.warning("Freebox: aucune facture trouvée sur la page (vérifier sélecteurs ou URL)")
+            logger.warning(
+                "Freebox: aucune facture trouvée sur la page (vérifier sélecteurs ou URL)"
+            )
             return {"count": 0, "files": []}
 
         filtered = self._filter_orders_by_date(
@@ -489,13 +562,20 @@ class FreeboxProvider:
         if year is not None or month is not None or months or date_start or date_end:
             logger.info(
                 "Freebox filtre (year=%s month=%s months=%s plage=%s..%s): %s -> %s facture(s)",
-                year, month, months, date_start, date_end, len(orders), len(filtered),
+                year,
+                month,
+                months,
+                date_start,
+                date_end,
+                len(orders),
+                len(filtered),
             )
         if not filtered and orders:
             with_date = sum(1 for o in orders if o.invoice_date)
             logger.warning(
                 "Freebox: 0 facture après filtre alors que %s lien(s) trouvé(s) (%s avec date reconnue). Vérifier le format des titres (ex. « facture de février 2026 »).",
-                len(orders), with_date,
+                len(orders),
+                with_date,
             )
 
         total = min(len(filtered), max_invoices)
@@ -506,7 +586,9 @@ class FreeboxProvider:
                 break
             if on_progress:
                 try:
-                    cb = on_progress(count, total, f"Téléchargement facture {count + 1}/{total}…")
+                    cb = on_progress(
+                        count, total, f"Téléchargement facture {count + 1}/{total}…"
+                    )
                     if hasattr(cb, "__await__"):
                         await cb  # type: ignore[misc]
                 except Exception:
@@ -523,7 +605,9 @@ class FreeboxProvider:
                 count += 1
                 if on_progress:
                     try:
-                        cb = on_progress(count, total, f"{count}/{total} facture(s) téléchargée(s)")
+                        cb = on_progress(
+                            count, total, f"{count}/{total} facture(s) téléchargée(s)"
+                        )
                         if hasattr(cb, "__await__"):
                             await cb  # type: ignore[misc]
                     except Exception:
@@ -541,7 +625,10 @@ class FreeboxProvider:
         if not self.driver:
             return False
         try:
-            self.driver.find_element(By.CSS_SELECTOR, "input[name*='otp'], input[name*='code'], input[type='tel'][maxlength='6']")
+            self.driver.find_element(
+                By.CSS_SELECTOR,
+                "input[name*='otp'], input[name*='code'], input[type='tel'][maxlength='6']",
+            )
             return True
         except NoSuchElementException:
             return False
@@ -550,10 +637,15 @@ class FreeboxProvider:
         if not self.driver:
             return False
         try:
-            inp = self.driver.find_element(By.CSS_SELECTOR, "input[name*='otp'], input[name*='code'], input[type='tel']")
+            inp = self.driver.find_element(
+                By.CSS_SELECTOR,
+                "input[name*='otp'], input[name*='code'], input[type='tel']",
+            )
             inp.clear()
             inp.send_keys(otp_code)
-            self.driver.find_element(By.CSS_SELECTOR, "input[type='submit'], button[type='submit']").click()
+            self.driver.find_element(
+                By.CSS_SELECTOR, "input[type='submit'], button[type='submit']"
+            ).click()
             time.sleep(4)
             return self._is_logged_in()
         except Exception as e:

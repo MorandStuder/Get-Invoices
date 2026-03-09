@@ -5,6 +5,7 @@ Mode initial très simple et semi-manuel :
 - tu navigues toi-même vers la page de factures,
 - le provider ne fait que lister et télécharger les liens PDF visibles.
 """
+
 from __future__ import annotations
 
 import logging
@@ -15,15 +16,15 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.common.by import By
+from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.firefox.service import Service as FirefoxService
-from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.firefox import GeckoDriverManager
 
@@ -102,7 +103,9 @@ class BouyguesProvider:
         }
         opts.add_experimental_option("prefs", prefs)
         if self.chrome_user_data_dir:
-            opts.add_argument(f"--user-data-dir={Path(self.chrome_user_data_dir).resolve()}")
+            opts.add_argument(
+                f"--user-data-dir={Path(self.chrome_user_data_dir).resolve()}"
+            )
         driver_path = ChromeDriverManager().install()
         service = ChromeService(driver_path)
         return webdriver.Chrome(service=service, options=opts)
@@ -121,19 +124,34 @@ class BouyguesProvider:
         if not self.driver:
             return
         try:
-            for text in ("tout accepter", "accepter", "accepter tous", "ok", "continuer", "j'accepte"):
+            for text in (
+                "tout accepter",
+                "accepter",
+                "accepter tous",
+                "ok",
+                "continuer",
+                "j'accepte",
+            ):
                 for tag in ["button", "a", "span", "div"]:
                     try:
                         els = self.driver.find_elements(By.TAG_NAME, tag)
                         for el in els:
                             if not el.is_displayed():
                                 continue
-                            t = (el.text or el.get_attribute("aria-label") or "").strip().lower()
+                            t = (
+                                (el.text or el.get_attribute("aria-label") or "")
+                                .strip()
+                                .lower()
+                            )
                             if text in t and len(t) < 80:
                                 el.click()
                                 time.sleep(1)
                                 return
-                            if el.get_attribute("data-testid") and "accept" in (el.get_attribute("data-testid") or "").lower():
+                            if (
+                                el.get_attribute("data-testid")
+                                and "accept"
+                                in (el.get_attribute("data-testid") or "").lower()
+                            ):
                                 el.click()
                                 time.sleep(1)
                                 return
@@ -152,10 +170,17 @@ class BouyguesProvider:
         try:
             body = self.driver.page_source.lower()
             # Indices de connexion : mes factures, mon compte, déconnexion
-            if "mes factures" in body or "mon compte" in body or "déconnexion" in body or "personid=" in url:
+            if (
+                "mes factures" in body
+                or "mon compte" in body
+                or "déconnexion" in body
+                or "personid=" in url
+            ):
                 return True
             # Formulaire de connexion visible = pas connecté
-            pwd_fields = self.driver.find_elements(By.CSS_SELECTOR, "input[type='password']")
+            pwd_fields = self.driver.find_elements(
+                By.CSS_SELECTOR, "input[type='password']"
+            )
             if pwd_fields and any(f.is_displayed() for f in pwd_fields):
                 return False
             # URL mes-factures sans formulaire login = probablement connecté
@@ -171,7 +196,14 @@ class BouyguesProvider:
         wait = WebDriverWait(self.driver, self.timeout)
         try:
             # Attendre qu'au moins un champ de formulaire soit présent
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='text'], input[type='email'], input[type='password'], input[name], input[id]")))
+            wait.until(
+                EC.presence_of_element_located(
+                    (
+                        By.CSS_SELECTOR,
+                        "input[type='text'], input[type='email'], input[type='password'], input[name], input[id]",
+                    )
+                )
+            )
         except TimeoutException:
             logger.warning("Bouygues: aucun champ de formulaire trouvé après attente")
             return False
@@ -208,7 +240,11 @@ class BouyguesProvider:
         for sel in login_selectors:
             try:
                 for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
-                    if el.is_displayed() and el.is_enabled() and el.get_attribute("type") != "hidden":
+                    if (
+                        el.is_displayed()
+                        and el.is_enabled()
+                        and el.get_attribute("type") != "hidden"
+                    ):
                         login_input = el
                         break
                 if login_input:
@@ -226,10 +262,14 @@ class BouyguesProvider:
             except NoSuchElementException:
                 continue
         if not login_input:
-            logger.warning("Bouygues: champ identifiant non trouvé (page peut avoir changé)")
+            logger.warning(
+                "Bouygues: champ identifiant non trouvé (page peut avoir changé)"
+            )
             return False
         if not pass_input:
-            logger.warning("Bouygues: champ mot de passe non trouvé (connexion par code SMS ?)")
+            logger.warning(
+                "Bouygues: champ mot de passe non trouvé (connexion par code SMS ?)"
+            )
             return False
         try:
             login_input.clear()
@@ -255,7 +295,12 @@ class BouyguesProvider:
                     if not btn.is_displayed():
                         continue
                     t = (btn.text or btn.get_attribute("value") or "").lower()
-                    if "submit" in sel or "connecter" in t or "connexion" in t or "valider" in t:
+                    if (
+                        "submit" in sel
+                        or "connecter" in t
+                        or "connexion" in t
+                        or "valider" in t
+                    ):
                         btn.click()
                         return True
             except NoSuchElementException:
@@ -263,7 +308,12 @@ class BouyguesProvider:
         for btn in self.driver.find_elements(By.TAG_NAME, "button"):
             if btn.is_displayed():
                 t = (btn.text or "").lower()
-                if "connecter" in t or "connexion" in t or "valider" in t or "continuer" in t:
+                if (
+                    "connecter" in t
+                    or "connexion" in t
+                    or "valider" in t
+                    or "continuer" in t
+                ):
                     btn.click()
                     return True
         for inp in self.driver.find_elements(By.CSS_SELECTOR, "input[type='submit']"):
@@ -295,7 +345,9 @@ class BouyguesProvider:
                 logger.info("Bouygues: déjà connecté, page Mes factures affichée.")
                 return True
             # Sinon on est sur une page de connexion : remplir et soumettre
-            logger.info("Bouygues: formulaire de connexion détecté, connexion automatique…")
+            logger.info(
+                "Bouygues: formulaire de connexion détecté, connexion automatique…"
+            )
             if not self._find_and_fill_login_form():
                 return False
             time.sleep(5)
@@ -308,7 +360,9 @@ class BouyguesProvider:
             if self._is_logged_in():
                 logger.info("Bouygues: connexion réussie (après redirection).")
                 return True
-            logger.warning("Bouygues: connexion peut avoir échoué (vérifier identifiants ou captcha).")
+            logger.warning(
+                "Bouygues: connexion peut avoir échoué (vérifier identifiants ou captcha)."
+            )
             return False
         except Exception as e:
             logger.error("Bouygues login: %s", e)
@@ -324,7 +378,9 @@ class BouyguesProvider:
         current = (self.driver.current_url or "").lower()
         if "bouyguestelecom.fr" in current or "b-and-you.fr" in current:
             return True
-        logger.warning("Bouygues: URL actuelle inattendue pour les factures: %s", current)
+        logger.warning(
+            "Bouygues: URL actuelle inattendue pour les factures: %s", current
+        )
         return False
 
     def _parse_invoice_date_from_text(self, text: str) -> Optional[date_type]:
@@ -367,7 +423,11 @@ class BouyguesProvider:
                 title = (a.get_attribute("title") or "").strip().lower()
                 if not href or href == "#":
                     continue
-                if ".pdf" not in href and "facture" not in text and "facture" not in title:
+                if (
+                    ".pdf" not in href
+                    and "facture" not in text
+                    and "facture" not in title
+                ):
                     continue
                 full = urljoin(base_url, href) if not href.startswith("http") else href
                 if full in seen:
@@ -375,7 +435,14 @@ class BouyguesProvider:
                 seen.add(full)
                 inv_date = self._parse_invoice_date_from_text(title or text or href)
                 order_id = f"bouygues_inv_{idx}_{hash(full) % 100000}"
-                out.append(OrderInfo(order_id=order_id, invoice_url=full, invoice_date=inv_date, raw_element=a))
+                out.append(
+                    OrderInfo(
+                        order_id=order_id,
+                        invoice_url=full,
+                        invoice_date=inv_date,
+                        raw_element=a,
+                    )
+                )
         except Exception as e:
             logger.warning("Bouygues list_orders_or_invoices: %s", e)
         return out
@@ -398,7 +465,9 @@ class BouyguesProvider:
             pass
         return session
 
-    def _download_pdf(self, url: str, order_id: str, invoice_date: Optional[date_type] = None) -> Optional[str]:
+    def _download_pdf(
+        self, url: str, order_id: str, invoice_date: Optional[date_type] = None
+    ) -> Optional[str]:
         """Télécharge un PDF en réutilisant la session navigateur."""
         try:
             session = self._get_browser_session()
@@ -407,7 +476,9 @@ class BouyguesProvider:
                 logger.warning("Bouygues: HTTP %s pour %s", r.status_code, url)
                 return None
             ct = r.headers.get("content-type", "").lower()
-            if "pdf" not in ct and not (len(r.content) >= 4 and r.content[:4] == b"%PDF"):
+            if "pdf" not in ct and not (
+                len(r.content) >= 4 and r.content[:4] == b"%PDF"
+            ):
                 logger.warning("Bouygues: contenu non PDF pour %s", url)
                 return None
             if invoice_date:
@@ -431,7 +502,11 @@ class BouyguesProvider:
         force_redownload: bool = False,
     ) -> Optional[str]:
         """Télécharge une facture individuelle à partir d'un OrderInfo ou d'une URL brute."""
-        oid = order_id or (order_or_id.order_id if isinstance(order_or_id, OrderInfo) else str(order_or_id))
+        oid = order_id or (
+            order_or_id.order_id
+            if isinstance(order_or_id, OrderInfo)
+            else str(order_or_id)
+        )
         if not force_redownload and self.registry.is_downloaded(PROVIDER_BOUYGUES, oid):
             logger.info("Bouygues: facture déjà présente pour %s, skip", oid)
             return None
@@ -473,7 +548,9 @@ class BouyguesProvider:
             raise Exception("Échec de l'ouverture de session Bouygues Telecom")
         if not await self.navigate_to_invoices():
             # En mode semi-manuel, on ne bloque pas : on tente quand même la liste.
-            logger.warning("Bouygues: navigate_to_invoices a échoué, on tente list_orders_or_invoices sur la page actuelle.")
+            logger.warning(
+                "Bouygues: navigate_to_invoices a échoué, on tente list_orders_or_invoices sur la page actuelle."
+            )
         orders = self.list_orders_or_invoices()
         if not orders:
             return {"count": 0, "files": []}
@@ -528,4 +605,3 @@ class BouyguesProvider:
     async def submit_otp(self, otp_code: str) -> bool:
         # V1 simple : pas de flux OTP automatisé pour Bouygues.
         return False
-

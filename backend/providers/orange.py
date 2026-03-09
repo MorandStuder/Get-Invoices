@@ -4,8 +4,10 @@ Téléchargement des factures depuis Historique des factures.
 Mode manuel : le navigateur s'ouvre sur l'URL configurée, l'utilisateur se connecte,
 le provider détecte la connexion et télécharge les PDFs visibles.
 """
+
 from __future__ import annotations
 
+import logging
 import re
 import time
 from datetime import date as date_type
@@ -13,19 +15,17 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.firefox import GeckoDriverManager
 
 from backend.providers.base import OrderInfo
 from backend.services.invoice_registry import InvoiceRegistry
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,9 @@ class OrangeProvider:
     def provider_id(self) -> str:
         return self.PROVIDER_ID
 
-    def _setup_driver(self, use_profile: bool = True) -> Union[webdriver.Chrome, webdriver.Firefox]:
+    def _setup_driver(
+        self, use_profile: bool = True
+    ) -> Union[webdriver.Chrome, webdriver.Firefox]:
         if self.browser == "firefox":
             return self._setup_firefox()
         return self._setup_chrome(use_profile=use_profile)
@@ -99,33 +101,54 @@ class OrangeProvider:
             raw_path = Path(self.chrome_user_data_dir).resolve()
             parent = raw_path.parent
             profile_name = raw_path.name
-            known_profile_names = {"default", "profile 1", "profile 2", "profile 3", "profile 4", "profile 5"}
-            if profile_name.lower() in known_profile_names and (parent / "Local State").exists():
+            known_profile_names = {
+                "default",
+                "profile 1",
+                "profile 2",
+                "profile 3",
+                "profile 4",
+                "profile 5",
+            }
+            if (
+                profile_name.lower() in known_profile_names
+                and (parent / "Local State").exists()
+            ):
                 opts.add_argument(f"--user-data-dir={parent}")
                 opts.add_argument(f"--profile-directory={profile_name}")
                 profile_path = str(raw_path)
             else:
                 profile_path = str(raw_path)
                 opts.add_argument(f"--user-data-dir={profile_path}")
-        logger.info("Orange: lancement Chrome (profil: %s)", profile_path or "non (temporaire)")
+        logger.info(
+            "Orange: lancement Chrome (profil: %s)", profile_path or "non (temporaire)"
+        )
 
         raw_driver_path = ChromeDriverManager().install()
         driver_path = Path(raw_driver_path)
-        if not driver_path.name.lower().endswith(".exe") or "third_party_notices" in driver_path.name.lower():
+        if (
+            not driver_path.name.lower().endswith(".exe")
+            or "third_party_notices" in driver_path.name.lower()
+        ):
             candidate = driver_path.with_name("chromedriver.exe")
             if candidate.exists():
                 driver_path = candidate
         service = ChromeService(str(driver_path))
         driver = webdriver.Chrome(service=service, options=opts)
         driver.set_page_load_timeout(60)
-        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        })
+        driver.execute_cdp_cmd(
+            "Page.addScriptToEvaluateOnNewDocument",
+            {
+                "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            },
+        )
         # Forcer le répertoire de téléchargement via CDP (override les prefs du profil existant)
-        driver.execute_cdp_cmd("Browser.setDownloadBehavior", {
-            "behavior": "allow",
-            "downloadPath": str(self.download_path.absolute()),
-        })
+        driver.execute_cdp_cmd(
+            "Browser.setDownloadBehavior",
+            {
+                "behavior": "allow",
+                "downloadPath": str(self.download_path.absolute()),
+            },
+        )
         return driver
 
     def _setup_firefox(self) -> webdriver.Firefox:
@@ -137,8 +160,12 @@ class OrangeProvider:
         else:
             profile = FirefoxProfile()
             profile.set_preference("browser.download.folderList", 2)
-            profile.set_preference("browser.download.dir", str(self.download_path.absolute()))
-            profile.set_preference("browser.helperApps.neverAsk.saveToDisk", "application/pdf")
+            profile.set_preference(
+                "browser.download.dir", str(self.download_path.absolute())
+            )
+            profile.set_preference(
+                "browser.helperApps.neverAsk.saveToDisk", "application/pdf"
+            )
             opts.profile = profile
         driver_path = GeckoDriverManager().install()
         driver = webdriver.Firefox(service=FirefoxService(driver_path), options=opts)
@@ -155,20 +182,34 @@ class OrangeProvider:
         if "orange.fr" not in url:
             return False
         # Pages de login Orange : /auth/, /oauth/, /espace-client/login
-        login_patterns = ["/auth/", "/oauth/", "/login", "/connexion", "signin", "sso.orange"]
+        login_patterns = [
+            "/auth/",
+            "/oauth/",
+            "/login",
+            "/connexion",
+            "signin",
+            "sso.orange",
+        ]
         if any(p in url for p in login_patterns):
             return False
         try:
             body = self.driver.page_source.lower()
             # Formulaire de connexion visible = pas connecté
-            pwd_fields = self.driver.find_elements(By.CSS_SELECTOR, "input[type='password']")
+            pwd_fields = self.driver.find_elements(
+                By.CSS_SELECTOR, "input[type='password']"
+            )
             if pwd_fields and any(f.is_displayed() for f in pwd_fields):
                 return False
             # Indicateurs de session active Orange
-            if any(x in body for x in ["déconnexion", "se déconnecter", "mon compte", "historique"]):
+            if any(
+                x in body
+                for x in ["déconnexion", "se déconnecter", "mon compte", "historique"]
+            ):
                 return True
             # URL espace client sans login
-            if "espace-client.orange.fr" in url and not any(p in url for p in login_patterns):
+            if "espace-client.orange.fr" in url and not any(
+                p in url for p in login_patterns
+            ):
                 if "facture" in url or "historique" in url or "paiement" in url:
                     return True
         except Exception:
@@ -190,13 +231,27 @@ class OrangeProvider:
                 pass
         # Mois français
         mois_fr = {
-            "janvier": 1, "février": 2, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5,
-            "juin": 6, "juillet": 7, "août": 8, "aout": 8, "septembre": 9,
-            "octobre": 10, "novembre": 11, "décembre": 12, "decembre": 12,
+            "janvier": 1,
+            "février": 2,
+            "fevrier": 2,
+            "mars": 3,
+            "avril": 4,
+            "mai": 5,
+            "juin": 6,
+            "juillet": 7,
+            "août": 8,
+            "aout": 8,
+            "septembre": 9,
+            "octobre": 10,
+            "novembre": 11,
+            "décembre": 12,
+            "decembre": 12,
         }
         for mois_name, mois_num in mois_fr.items():
             # "23 février 2026" (jour + mois + année)
-            match = re.search(rf"(\d{{1,2}})\s+{re.escape(mois_name)}\s+(\d{{4}})", text_lower)
+            match = re.search(
+                rf"(\d{{1,2}})\s+{re.escape(mois_name)}\s+(\d{{4}})", text_lower
+            )
             if match:
                 try:
                     d, y = int(match.group(1)), int(match.group(2))
@@ -232,8 +287,15 @@ class OrangeProvider:
                     self.driver = self._setup_driver(use_profile=True)
                 except Exception as e:
                     err_msg = str(e).lower()
-                    if "already in use" in err_msg or "user data directory" in err_msg or "profile" in err_msg:
-                        logger.warning("Orange: profil Chrome verrouillé (%s). Relance sans profil.", e)
+                    if (
+                        "already in use" in err_msg
+                        or "user data directory" in err_msg
+                        or "profile" in err_msg
+                    ):
+                        logger.warning(
+                            "Orange: profil Chrome verrouillé (%s). Relance sans profil.",
+                            e,
+                        )
                         self.driver = self._setup_driver(use_profile=False)
                     else:
                         raise
@@ -243,9 +305,14 @@ class OrangeProvider:
             try:
                 self.driver.get(self.invoices_url)
             except Exception as e:
-                logger.warning("Orange: chargement %s interrompu (%s)", self.invoices_url[:80], e)
+                logger.warning(
+                    "Orange: chargement %s interrompu (%s)", self.invoices_url[:80], e
+                )
 
-            logger.info("Orange: en attente de connexion manuelle sur %s", self.invoices_url[:80])
+            logger.info(
+                "Orange: en attente de connexion manuelle sur %s",
+                self.invoices_url[:80],
+            )
             logger.info("Orange: connectez-vous dans le navigateur (5 minutes max).")
 
             max_wait = 300  # 5 minutes
@@ -255,11 +322,16 @@ class OrangeProvider:
                 time.sleep(interval)
                 elapsed += interval
                 if self._is_logged_in():
-                    logger.info("Orange: connexion détectée (URL: %s)", self.driver.current_url[:80])
+                    logger.info(
+                        "Orange: connexion détectée (URL: %s)",
+                        self.driver.current_url[:80],
+                    )
                     return True
                 logger.info("Orange: attente connexion... (%ds/%ds)", elapsed, max_wait)
 
-            logger.warning("Orange: timeout — connexion non détectée après %ds", max_wait)
+            logger.warning(
+                "Orange: timeout — connexion non détectée après %ds", max_wait
+            )
             return False
         except Exception as e:
             logger.error("Orange login: %s", e, exc_info=True)
@@ -271,14 +343,19 @@ class OrangeProvider:
         url = (self.driver.current_url or "").lower()
         # Déjà sur la page historique
         if "historique" in url:
-            logger.info("Orange: déjà sur la page des factures (%s)", self.driver.current_url[:80])
+            logger.info(
+                "Orange: déjà sur la page des factures (%s)",
+                self.driver.current_url[:80],
+            )
             return True
         # Naviguer vers l'URL configurée
         try:
             self.driver.get(self.invoices_url)
             time.sleep(3)
             if self._is_logged_in():
-                logger.info("Orange: page factures chargée (%s)", self.driver.current_url[:80])
+                logger.info(
+                    "Orange: page factures chargée (%s)", self.driver.current_url[:80]
+                )
                 return True
         except Exception as e:
             logger.warning("Orange: navigate_to_invoices: %s", e)
@@ -306,23 +383,54 @@ class OrangeProvider:
                     # Liens sans URL (href vide) : téléchargement via clic JavaScript
                     # Ex: "Voir la facture du 23 février 2026 au format PDF"
                     if not href or href == "#" or href.startswith("javascript:"):
-                        if "facture" in text_lower and ("pdf" in text_lower or "format" in text_lower):
+                        if "facture" in text_lower and (
+                            "pdf" in text_lower or "format" in text_lower
+                        ):
                             inv_date = self._parse_invoice_date(text)
                             date_str = inv_date.isoformat() if inv_date else f"idx{idx}"
                             order_id = date_str
-                            logger.info("Orange: lien clic trouvé: %s | date=%s", text[:80], inv_date)
+                            logger.info(
+                                "Orange: lien clic trouvé: %s | date=%s",
+                                text[:80],
+                                inv_date,
+                            )
                             # raw_element stocke le texte du lien pour le retrouver plus tard
-                            out.append(OrderInfo(order_id=order_id, invoice_url=None, invoice_date=inv_date, raw_element=text))
+                            out.append(
+                                OrderInfo(
+                                    order_id=order_id,
+                                    invoice_url=None,
+                                    invoice_date=inv_date,
+                                    raw_element=text,
+                                )
+                            )
                         continue
 
                     # Liens avec URL directe vers un PDF
                     href_lower = href.lower()
-                    if ".pdf" in href_lower or "telecharger" in href_lower or "download" in href_lower:
-                        full = urljoin(base_url, href) if not href.startswith("http") else href
+                    if (
+                        ".pdf" in href_lower
+                        or "telecharger" in href_lower
+                        or "download" in href_lower
+                    ):
+                        full = (
+                            urljoin(base_url, href)
+                            if not href.startswith("http")
+                            else href
+                        )
                         inv_date = self._parse_invoice_date(text)
                         order_id = f"orange_url_{idx}_{hash(full) % 100000}"
-                        logger.info("Orange: lien URL directe: %s | date=%s", full[:80], inv_date)
-                        out.append(OrderInfo(order_id=order_id, invoice_url=full, invoice_date=inv_date))
+                        logger.info(
+                            "Orange: lien URL directe: %s | date=%s",
+                            full[:80],
+                            inv_date,
+                        )
+                        out.append(
+                            OrderInfo(
+                                order_id=order_id,
+                                invoice_url=full,
+                                invoice_date=inv_date,
+                            )
+                        )
                 except Exception:
                     continue
         except Exception as e:
@@ -330,7 +438,9 @@ class OrangeProvider:
         logger.info("Orange: %d lien(s) facture trouvé(s)", len(out))
         return out
 
-    def _wait_for_browser_download(self, existing_pdfs: set, max_wait: int = 30) -> Optional[Path]:
+    def _wait_for_browser_download(
+        self, existing_pdfs: set, max_wait: int = 30
+    ) -> Optional[Path]:
         deadline = time.time() + max_wait
         while time.time() < deadline:
             time.sleep(2)
@@ -345,13 +455,18 @@ class OrangeProvider:
 
     def _get_browser_session(self) -> Any:
         import requests
+
         session = requests.Session()
         for c in self.driver.get_cookies():
             session.cookies.set(c["name"], c["value"], domain=c.get("domain", ""))
-        session.headers["User-Agent"] = self.driver.execute_script("return navigator.userAgent;")
+        session.headers["User-Agent"] = self.driver.execute_script(
+            "return navigator.userAgent;"
+        )
         return session
 
-    def _rename_browser_download(self, path: Path, order_id: str, invoice_date: Optional[date_type] = None) -> str:
+    def _rename_browser_download(
+        self, path: Path, order_id: str, invoice_date: Optional[date_type] = None
+    ) -> str:
         if invoice_date:
             new_name = f"orange_{invoice_date.isoformat()}.pdf"
         else:
@@ -363,11 +478,18 @@ class OrangeProvider:
             try:
                 path.rename(new_path)
             except Exception as e:
-                logger.warning("Orange: impossible de renommer %s -> %s : %s", path.name, new_name, e)
+                logger.warning(
+                    "Orange: impossible de renommer %s -> %s : %s",
+                    path.name,
+                    new_name,
+                    e,
+                )
                 return path.name
         return new_name
 
-    def _click_download_button_and_wait(self, existing_pdfs: set, wait_secs: int = 8) -> Optional[Path]:
+    def _click_download_button_and_wait(
+        self, existing_pdfs: set, wait_secs: int = 8
+    ) -> Optional[Path]:
         """Sur la page afficher-la-facture, clique sur 'Télécharger le PDF' et attend le fichier."""
         if not self.driver:
             return None
@@ -381,14 +503,19 @@ class OrangeProvider:
                     text = (el.text or "").strip().lower()
                     if any(k in text for k in download_keywords) and el.is_displayed():
                         target = el
-                        logger.info("Orange: bouton téléchargement trouvé: '%s'", el.text.strip()[:60])
+                        logger.info(
+                            "Orange: bouton téléchargement trouvé: '%s'",
+                            el.text.strip()[:60],
+                        )
                         break
                 except Exception:
                     continue
             if target:
                 break
         if not target:
-            logger.warning("Orange: bouton 'Télécharger le PDF' introuvable sur la page")
+            logger.warning(
+                "Orange: bouton 'Télécharger le PDF' introuvable sur la page"
+            )
             return None
         try:
             target.click()
@@ -398,14 +525,18 @@ class OrangeProvider:
             logger.warning("Orange: clic bouton téléchargement: %s", e)
             return None
 
-    def _download_pdf(self, url: str, order_id: str, invoice_date: Optional[date_type] = None) -> Optional[str]:
+    def _download_pdf(
+        self, url: str, order_id: str, invoice_date: Optional[date_type] = None
+    ) -> Optional[str]:
         try:
             session = self._get_browser_session()
             r = session.get(url, timeout=30, allow_redirects=True)
             if r.status_code != 200:
                 return None
             ct = r.headers.get("content-type", "").lower()
-            if "pdf" not in ct and not (len(r.content) >= 4 and r.content[:4] == b"%PDF"):
+            if "pdf" not in ct and not (
+                len(r.content) >= 4 and r.content[:4] == b"%PDF"
+            ):
                 return None
             if invoice_date:
                 name = f"orange_{invoice_date.isoformat()}.pdf"
@@ -427,7 +558,11 @@ class OrangeProvider:
         invoice_date: Optional[date_type] = None,
         force_redownload: bool = False,
     ) -> Optional[str]:
-        oid = order_id or (order_or_id.order_id if isinstance(order_or_id, OrderInfo) else str(order_or_id))
+        oid = order_id or (
+            order_or_id.order_id
+            if isinstance(order_or_id, OrderInfo)
+            else str(order_or_id)
+        )
         if not force_redownload and self.registry.is_downloaded(PROVIDER_ORANGE, oid):
             return None
         url = None
@@ -439,7 +574,12 @@ class OrangeProvider:
             return None
         filename = self._download_pdf(url, oid, invoice_date)
         if filename:
-            self.registry.add(PROVIDER_ORANGE, oid, filename, invoice_date=invoice_date.isoformat() if invoice_date else None)
+            self.registry.add(
+                PROVIDER_ORANGE,
+                oid,
+                filename,
+                invoice_date=invoice_date.isoformat() if invoice_date else None,
+            )
         return filename
 
     async def _notify_progress(
@@ -474,7 +614,9 @@ class OrangeProvider:
         if not ok:
             raise Exception("Échec de la connexion à l'espace Orange")
         if not await self.navigate_to_invoices():
-            logger.warning("Orange: navigate_to_invoices a échoué, tentative sur la page actuelle.")
+            logger.warning(
+                "Orange: navigate_to_invoices a échoué, tentative sur la page actuelle."
+            )
 
         orders = self.list_orders_or_invoices()
         if not orders:
@@ -484,6 +626,7 @@ class OrangeProvider:
         # Filtre par date si demandé
         if any([year, month, months, date_start, date_end]):
             from datetime import datetime
+
             filtered: List[OrderInfo] = []
             for o in orders:
                 if date_start and date_end:
@@ -515,9 +658,13 @@ class OrangeProvider:
         for i, order in enumerate(orders):
             if count >= max_invoices:
                 break
-            await self._notify_progress(on_progress, count, total, f"Téléchargement {i + 1}/{total}…")
+            await self._notify_progress(
+                on_progress, count, total, f"Téléchargement {i + 1}/{total}…"
+            )
 
-            if not force_redownload and self.registry.is_downloaded(PROVIDER_ORANGE, order.order_id):
+            if not force_redownload and self.registry.is_downloaded(
+                PROVIDER_ORANGE, order.order_id
+            ):
                 logger.info("Orange: %s déjà téléchargé, ignoré", order.order_id)
                 continue
 
@@ -559,42 +706,62 @@ class OrangeProvider:
                             tab_url = self.driver.current_url  # type: ignore[union-attr]
                             if tab_url and "about:" not in tab_url.lower():
                                 pdf_url = tab_url
-                                logger.info("Orange: URL dans nouvel onglet: %s", tab_url[:80])
+                                logger.info(
+                                    "Orange: URL dans nouvel onglet: %s", tab_url[:80]
+                                )
                             in_new_tab = True
                         else:
                             # Cas 2 : navigation dans l'onglet courant
                             url_after = self.driver.current_url  # type: ignore[union-attr]
                             if url_after != url_before:
                                 pdf_url = url_after
-                                logger.info("Orange: navigation vers %s", url_after[:80])
+                                logger.info(
+                                    "Orange: navigation vers %s", url_after[:80]
+                                )
 
                         # Télécharger via l'URL capturée
                         if pdf_url:
                             if ".pdf" in pdf_url.lower():
                                 # URL directe vers un PDF
-                                filename = self._download_pdf(pdf_url, order.order_id, order.invoice_date)
+                                filename = self._download_pdf(
+                                    pdf_url, order.order_id, order.invoice_date
+                                )
                                 if filename:
-                                    logger.info("Orange: facture via URL directe: %s", filename)
+                                    logger.info(
+                                        "Orange: facture via URL directe: %s", filename
+                                    )
                             else:
                                 # Page intermédiaire (ex: afficher-la-facture) : cliquer sur le bouton de téléchargement
-                                downloaded_path = self._click_download_button_and_wait(existing_pdfs, wait_secs=8)
+                                downloaded_path = self._click_download_button_and_wait(
+                                    existing_pdfs, wait_secs=8
+                                )
                                 if downloaded_path:
                                     filename = self._rename_browser_download(
-                                        downloaded_path, order.order_id, order.invoice_date
+                                        downloaded_path,
+                                        order.order_id,
+                                        order.invoice_date,
                                     )
-                                    logger.info("Orange: facture via bouton téléchargement: %s", filename)
+                                    logger.info(
+                                        "Orange: facture via bouton téléchargement: %s",
+                                        filename,
+                                    )
 
                         # Fallback : attendre un téléchargement navigateur déjà en cours
                         if not filename:
-                            downloaded_path = self._wait_for_browser_download(existing_pdfs, max_wait=10)
+                            downloaded_path = self._wait_for_browser_download(
+                                existing_pdfs, max_wait=10
+                            )
                             if downloaded_path:
                                 filename = self._rename_browser_download(
                                     downloaded_path, order.order_id, order.invoice_date
                                 )
-                                logger.info("Orange: facture via browser download: %s", filename)
+                                logger.info(
+                                    "Orange: facture via browser download: %s", filename
+                                )
                             else:
                                 logger.warning(
-                                    "Orange: aucun PDF après clic sur '%s'", (link_text or "")[:60]
+                                    "Orange: aucun PDF après clic sur '%s'",
+                                    (link_text or "")[:60],
                                 )
 
                         # Fermer le nouvel onglet si ouvert
@@ -615,7 +782,9 @@ class OrangeProvider:
                             except Exception:
                                 pass
                     else:
-                        logger.warning("Orange: lien introuvable pour '%s'", (link_text or "")[:60])
+                        logger.warning(
+                            "Orange: lien introuvable pour '%s'", (link_text or "")[:60]
+                        )
                 except Exception as e:
                     logger.warning("Orange: clic download: %s", e)
                     # Tentative de retour sur historique en cas d'erreur
@@ -632,24 +801,41 @@ class OrangeProvider:
                     logger.info("Orange: fallback navigateur pour %s", url[:80])
                     try:
                         self.driver.get(url)  # type: ignore[union-attr]
-                        downloaded_path = self._wait_for_browser_download(existing_pdfs, max_wait=30)
+                        downloaded_path = self._wait_for_browser_download(
+                            existing_pdfs, max_wait=30
+                        )
                         if downloaded_path:
-                            filename = self._rename_browser_download(downloaded_path, order.order_id, order.invoice_date)
-                            logger.info("Orange: facture via browser download: %s", filename)
+                            filename = self._rename_browser_download(
+                                downloaded_path, order.order_id, order.invoice_date
+                            )
+                            logger.info(
+                                "Orange: facture via browser download: %s", filename
+                            )
                     except Exception as e:
                         logger.warning("Orange: browser download fallback: %s", e)
 
             if filename:
                 self.registry.add(
-                    PROVIDER_ORANGE, order.order_id, filename,
-                    invoice_date=order.invoice_date.isoformat() if order.invoice_date else None,
+                    PROVIDER_ORANGE,
+                    order.order_id,
+                    filename,
+                    invoice_date=(
+                        order.invoice_date.isoformat() if order.invoice_date else None
+                    ),
                 )
                 files.append(filename)
                 count += 1
-                await self._notify_progress(on_progress, count, total, f"{count}/{total} facture(s) téléchargée(s)")
+                await self._notify_progress(
+                    on_progress,
+                    count,
+                    total,
+                    f"{count}/{total} facture(s) téléchargée(s)",
+                )
                 logger.info("Orange: facture téléchargée: %s", filename)
             else:
-                logger.warning("Orange: échec téléchargement facture %s", order.order_id)
+                logger.warning(
+                    "Orange: échec téléchargement facture %s", order.order_id
+                )
 
             time.sleep(1)
 

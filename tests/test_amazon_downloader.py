@@ -1,8 +1,11 @@
 """
 Tests unitaires pour le service AmazonInvoiceDownloader.
 """
+
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+
 from backend.services.amazon_downloader import AmazonInvoiceDownloader
 
 
@@ -13,14 +16,14 @@ def downloader() -> AmazonInvoiceDownloader:
         email="test@example.com",
         password="test_password",
         download_path="./test_factures",
-        headless=True
+        headless=True,
     )
 
 
 @pytest.mark.asyncio
 async def test_login_success(downloader: AmazonInvoiceDownloader) -> None:
     """Test de connexion réussie."""
-    with patch.object(downloader, '_setup_driver') as mock_setup:
+    with patch.object(downloader, "_setup_driver") as mock_setup:
         mock_driver = Mock()
         mock_setup.return_value = mock_driver
 
@@ -65,9 +68,11 @@ async def test_login_success(downloader: AmazonInvoiceDownloader) -> None:
         mock_driver.find_element.side_effect = find_element_side_effect
 
         # Utiliser WebDriverWait mock
-        with patch('backend.services.amazon_downloader.WebDriverWait') as mock_wait, \
-             patch.object(downloader, '_is_2fa_required', return_value=False), \
-             patch('backend.services.amazon_downloader.time.sleep'):  # Skip sleep pour accélérer
+        with (
+            patch("backend.services.amazon_downloader.WebDriverWait") as mock_wait,
+            patch.object(downloader, "_is_2fa_required", return_value=False),
+            patch("backend.services.amazon_downloader.time.sleep"),
+        ):  # Skip sleep pour accélérer
             mock_wait_instance = Mock()
             mock_wait.return_value = mock_wait_instance
 
@@ -96,6 +101,7 @@ async def test_login_success(downloader: AmazonInvoiceDownloader) -> None:
 def test_init_download_path(downloader: AmazonInvoiceDownloader) -> None:
     """Test que le dossier de téléchargement est créé."""
     import os
+
     assert os.path.exists(downloader.download_path)
 
 
@@ -154,7 +160,9 @@ def test_go_to_next_orders_page_no_driver(downloader: AmazonInvoiceDownloader) -
     assert downloader._go_to_next_orders_page() is False
 
 
-def test_has_next_orders_page_with_driver_no_next(downloader: AmazonInvoiceDownloader) -> None:
+def test_has_next_orders_page_with_driver_no_next(
+    downloader: AmazonInvoiceDownloader,
+) -> None:
     """Avec driver mais sans lien page suivante, retourne False."""
     mock_driver = Mock()
     mock_driver.find_elements = Mock(return_value=[])
@@ -178,7 +186,7 @@ def test_is_2fa_required_with_otp_field(downloader: AmazonInvoiceDownloader) -> 
 @pytest.mark.asyncio
 async def test_submit_otp_without_driver(downloader: AmazonInvoiceDownloader) -> None:
     """Test submit_otp démarre le login si pas de driver."""
-    with patch.object(downloader, 'login', new_callable=AsyncMock) as mock_login:
+    with patch.object(downloader, "login", new_callable=AsyncMock) as mock_login:
         mock_login.return_value = True
 
         result = await downloader.submit_otp("123456")
@@ -196,8 +204,10 @@ async def test_navigate_to_orders(downloader: AmazonInvoiceDownloader) -> None:
     # Mock un élément de la page des commandes
     mock_orders_container = Mock()
 
-    with patch('backend.services.amazon_downloader.WebDriverWait') as mock_wait, \
-         patch('backend.services.amazon_downloader.time.sleep'):
+    with (
+        patch("backend.services.amazon_downloader.WebDriverWait") as mock_wait,
+        patch("backend.services.amazon_downloader.time.sleep"),
+    ):
         mock_wait_instance = Mock()
         mock_wait.return_value = mock_wait_instance
         mock_wait_instance.until = Mock(return_value=mock_orders_container)
@@ -205,5 +215,6 @@ async def test_navigate_to_orders(downloader: AmazonInvoiceDownloader) -> None:
         result = await downloader.navigate_to_orders()
 
         assert result is True
-        mock_driver.get.assert_called_once_with("https://www.amazon.fr/gp/css/order-history")
-
+        mock_driver.get.assert_called_once_with(
+            "https://www.amazon.fr/gp/css/order-history"
+        )

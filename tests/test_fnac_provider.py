@@ -1,13 +1,14 @@
 """
 Tests du provider FNAC (Espace client fnac.com).
 """
+
 import tempfile
 from datetime import date
 from pathlib import Path
 
 import pytest
 
-from backend.providers.fnac import FnacProvider, PROVIDER_FNAC
+from backend.providers.fnac import PROVIDER_FNAC, FnacProvider
 
 
 def test_fnac_provider_id() -> None:

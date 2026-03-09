@@ -1,12 +1,13 @@
 """
 Tests du provider Bouygues Telecom (mode semi-manuel).
 """
+
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from backend.providers.bouygues import BouyguesProvider, PROVIDER_BOUYGUES
+from backend.providers.bouygues import PROVIDER_BOUYGUES, BouyguesProvider
 
 
 def test_bouygues_provider_id() -> None:
@@ -53,4 +54,3 @@ async def test_bouygues_close_no_driver() -> None:
         p = BouyguesProvider(login="a", password="b", download_path=tmp)
         await p.close()
         assert p.driver is None
-

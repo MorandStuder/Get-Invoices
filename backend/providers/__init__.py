@@ -4,12 +4,13 @@ Providers de factures (V2 multi-fournisseurs).
 Chaque module dans ce package implémente InvoiceProviderProtocol.
 Le registre PROVIDERS liste les providers disponibles (implémentés + à venir).
 """
-from backend.providers.base import InvoiceProviderProtocol, OrderInfo
+
 from backend.providers.amazon import AmazonProvider
-from backend.providers.freebox import FreeboxProvider
-from backend.providers.free_mobile import FreeMobileProvider
-from backend.providers.fnac import FnacProvider
+from backend.providers.base import InvoiceProviderProtocol, OrderInfo
 from backend.providers.bouygues import BouyguesProvider
+from backend.providers.fnac import FnacProvider
+from backend.providers.free_mobile import FreeMobileProvider
+from backend.providers.freebox import FreeboxProvider
 from backend.providers.orange import OrangeProvider
 
 # Registre des providers implémentés : id -> classe

@@ -1,36 +1,59 @@
 """
 Service pour télécharger automatiquement les factures Amazon.
 """
+
+import logging
 import re
 import time
-import logging
-from datetime import datetime, date as date_type
-from typing import Any, Optional, Dict, List, Union, Callable, Awaitable, Tuple
+from datetime import date as date_type
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
+
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait, Select
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import Select, WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.firefox import GeckoDriverManager
 
-from backend.services.invoice_registry import InvoiceRegistry, PROVIDER_AMAZON
+from backend.services.invoice_registry import PROVIDER_AMAZON, InvoiceRegistry
 
 logger = logging.getLogger(__name__)
 
 # Mois FR pour le parsing des dates Amazon
 _MOIS_FR = {
-    "janvier": 1, "février": 2, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5,
-    "juin": 6, "juillet": 7, "août": 8, "aout": 8, "septembre": 9,
-    "octobre": 10, "novembre": 11, "décembre": 12, "decembre": 12,
-    "janv": 1, "févr": 2, "fevr": 2, "avr": 4, "juil": 7, "sept": 9,
-    "oct": 10, "nov": 11, "déc": 12, "dec": 12,
+    "janvier": 1,
+    "février": 2,
+    "fevrier": 2,
+    "mars": 3,
+    "avril": 4,
+    "mai": 5,
+    "juin": 6,
+    "juillet": 7,
+    "août": 8,
+    "aout": 8,
+    "septembre": 9,
+    "octobre": 10,
+    "novembre": 11,
+    "décembre": 12,
+    "decembre": 12,
+    "janv": 1,
+    "févr": 2,
+    "fevr": 2,
+    "avr": 4,
+    "juil": 7,
+    "sept": 9,
+    "oct": 10,
+    "nov": 11,
+    "déc": 12,
+    "dec": 12,
 }
 
 
@@ -38,11 +61,11 @@ class AmazonInvoiceDownloader:
     """
     Classe pour automatiser le téléchargement de factures Amazon.
     """
-    
+
     AMAZON_BASE_URL = "https://www.amazon.fr"
     AMAZON_LOGIN_URL = "https://www.amazon.fr/ap/signin"
     AMAZON_ORDERS_URL = "https://www.amazon.fr/gp/css/order-history"
-    
+
     def __init__(
         self,
         email: str,
@@ -53,13 +76,17 @@ class AmazonInvoiceDownloader:
         otp_callback: Optional[Callable[[], Awaitable[str]]] = None,
         manual_mode: bool = False,
         browser: str = "chrome",  # "chrome" ou "firefox"
-        firefox_profile_path: Optional[str] = None,  # Chemin vers le profil Firefox existant (session persistante)
-        chrome_user_data_dir: Optional[str] = None,  # Répertoire de profil Chrome (session persistante)
+        firefox_profile_path: Optional[
+            str
+        ] = None,  # Chemin vers le profil Firefox existant (session persistante)
+        chrome_user_data_dir: Optional[
+            str
+        ] = None,  # Répertoire de profil Chrome (session persistante)
         keep_browser_open: bool = False,  # Ne pas fermer le navigateur à la fin (connexion continue)
     ) -> None:
         """
         Initialise le téléchargeur Amazon.
-        
+
         Args:
             email: Email du compte Amazon
             password: Mot de passe du compte Amazon
@@ -81,21 +108,25 @@ class AmazonInvoiceDownloader:
         self.driver: Optional[Union[webdriver.Chrome, webdriver.Firefox]] = None
         self.otp_callback = otp_callback
         self.pending_otp: Optional[str] = None
-        
+
         # Créer le dossier de téléchargement
         self.download_path.mkdir(parents=True, exist_ok=True)
         self.registry = InvoiceRegistry(self.download_path)
 
-        logger.info(f"AmazonInvoiceDownloader initialisé avec chemin: {self.download_path}")
-        logger.info(f"Configuration: browser={self.browser}, headless={self.headless}, manual_mode={self.manual_mode}, timeout={self.timeout}")
-    
+        logger.info(
+            f"AmazonInvoiceDownloader initialisé avec chemin: {self.download_path}"
+        )
+        logger.info(
+            f"Configuration: browser={self.browser}, headless={self.headless}, manual_mode={self.manual_mode}, timeout={self.timeout}"
+        )
+
     def _setup_driver(self) -> Union[webdriver.Chrome, webdriver.Firefox]:
         """
         Configure et retourne une instance de WebDriver (Chrome ou Firefox).
-        
+
         Returns:
             Instance de WebDriver configurée
-        
+
         Raises:
             Exception: Si le driver ne peut pas être créé
         """
@@ -103,24 +134,24 @@ class AmazonInvoiceDownloader:
             return self._setup_firefox_driver()
         else:
             return self._setup_chrome_driver()
-    
+
     def _setup_chrome_driver(self) -> webdriver.Chrome:
         """
         Configure et retourne une instance de WebDriver Chrome.
-        
+
         Returns:
             Instance de WebDriver Chrome configurée
-        
+
         Raises:
             Exception: Si le driver ne peut pas être créé
         """
         try:
             logger.info("Configuration du driver Chrome...")
             chrome_options = ChromeOptions()
-            
+
             if self.headless:
                 chrome_options.add_argument("--headless")
-            
+
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
@@ -130,10 +161,16 @@ class AmazonInvoiceDownloader:
             chrome_options.add_argument("--disable-background-networking")
             chrome_options.add_argument("--disable-backgrounding-occluded-windows")
             chrome_options.add_argument("--disable-renderer-backgrounding")
-            chrome_options.add_argument("--disable-features=TranslateUI,BlinkGenPropertyTrees")
-            chrome_options.add_argument("--remote-debugging-port=9222")  # Pour éviter les crashes
-            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            chrome_options.add_experimental_option('useAutomationExtension', False)
+            chrome_options.add_argument(
+                "--disable-features=TranslateUI,BlinkGenPropertyTrees"
+            )
+            chrome_options.add_argument(
+                "--remote-debugging-port=9222"
+            )  # Pour éviter les crashes
+            chrome_options.add_experimental_option(
+                "excludeSwitches", ["enable-automation"]
+            )
+            chrome_options.add_experimental_option("useAutomationExtension", False)
 
             # Profil persistant : cookies et session Amazon conservés entre les lancements
             if self.chrome_user_data_dir:
@@ -141,31 +178,33 @@ class AmazonInvoiceDownloader:
                 profile_path.mkdir(parents=True, exist_ok=True)
                 chrome_options.add_argument(f"--user-data-dir={profile_path}")
                 logger.info("Profil Chrome persistant: %s", profile_path)
-            
+
             # Configuration du téléchargement
             prefs = {
                 "download.default_directory": str(self.download_path.absolute()),
                 "download.prompt_for_download": False,
                 "download.directory_upgrade": True,
-                "safebrowsing.enabled": True
+                "safebrowsing.enabled": True,
             }
             chrome_options.add_experimental_option("prefs", prefs)
-            
+
             logger.info("Installation/téléchargement de ChromeDriver...")
             driver_path = ChromeDriverManager().install()
             logger.info(f"Chemin ChromeDriver retourné: {driver_path}")
 
             # Vérifier que c'est bien l'exécutable
-            if not Path(driver_path).exists() or not str(driver_path).endswith('.exe'):
+            if not Path(driver_path).exists() or not str(driver_path).endswith(".exe"):
                 driver_dir = Path(driver_path).parent
 
                 # Liste des chemins possibles (ordre de priorité)
                 driver_path_str = str(driver_path)
                 possible_paths = [
-                    driver_path_str.replace('THIRD_PARTY_NOTICES.chromedriver', 'chromedriver.exe'),
-                    str(driver_dir / 'chromedriver.exe'),
-                    str(driver_dir / 'chromedriver-win32' / 'chromedriver.exe'),
-                    str(driver_dir.parent / 'chromedriver.exe'),
+                    driver_path_str.replace(
+                        "THIRD_PARTY_NOTICES.chromedriver", "chromedriver.exe"
+                    ),
+                    str(driver_dir / "chromedriver.exe"),
+                    str(driver_dir / "chromedriver-win32" / "chromedriver.exe"),
+                    str(driver_dir.parent / "chromedriver.exe"),
                 ]
 
                 found = False
@@ -174,12 +213,15 @@ class AmazonInvoiceDownloader:
                     if p.exists() and p.is_file():
                         # Vérifier que c'est un exécutable (pas un fichier texte)
                         try:
-                            with open(path, 'rb') as f:
+                            with open(path, "rb") as f:
                                 header = f.read(2)
                                 # Les exécutables Windows commencent par 'MZ'
-                                if header == b'MZ':
+                                if header == b"MZ":
                                     driver_path = path  # str
-                                    logger.info("ChromeDriver exécutable trouvé: %s", driver_path)
+                                    logger.info(
+                                        "ChromeDriver exécutable trouvé: %s",
+                                        driver_path,
+                                    )
                                     found = True
                                     break
                         except Exception:
@@ -192,43 +234,46 @@ class AmazonInvoiceDownloader:
                         f"Chemins testés: {possible_paths}. "
                         f"Veuillez nettoyer le cache avec: Remove-Item -Recurse -Force $env:USERPROFILE\\.wdm\\drivers\\chromedriver"
                     )
-            
+
             service = ChromeService(driver_path)
             logger.info("Création de l'instance WebDriver...")
             driver = webdriver.Chrome(service=service, options=chrome_options)
-            
+
             # Désactiver la détection WebDriver
             driver.execute_cdp_cmd(
-                'Page.addScriptToEvaluateOnNewDocument',
-                {'source': 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})'}
+                "Page.addScriptToEvaluateOnNewDocument",
+                {
+                    "source": 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})'
+                },
             )
-            
+
             logger.info("Driver Chrome créé avec succès")
             return driver
         except Exception as e:
             logger.error(f"Erreur lors de la création du driver Chrome: {str(e)}")
             import traceback
+
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise Exception(f"Impossible de créer le driver Chrome: {str(e)}") from e
-    
+
     def _setup_firefox_driver(self) -> webdriver.Firefox:
         """
         Configure et retourne une instance de WebDriver Firefox.
         Utilise un profil existant si spécifié.
-        
+
         Returns:
             Instance de WebDriver Firefox configurée
-        
+
         Raises:
             Exception: Si le driver ne peut pas être créé
         """
         try:
             logger.info("Configuration du driver Firefox...")
             firefox_options = FirefoxOptions()
-            
+
             if self.headless:
                 firefox_options.add_argument("--headless")
-            
+
             # Si un profil Firefox est spécifié, l'utiliser
             if self.firefox_profile_path:
                 profile_path = Path(self.firefox_profile_path)
@@ -237,31 +282,40 @@ class AmazonInvoiceDownloader:
                     # Vérifier si le profil est verrouillé (Firefox déjà ouvert)
                     lock_file = profile_path / "lock"
                     if lock_file.exists():
-                        logger.warning("Le profil Firefox semble être verrouillé (Firefox peut être déjà ouvert)")
+                        logger.warning(
+                            "Le profil Firefox semble être verrouillé (Firefox peut être déjà ouvert)"
+                        )
                         logger.warning("Fermez Firefox ou utilisez un autre profil")
                         # Essayer quand même, mais avec un timeout plus court
                     firefox_profile = FirefoxProfile(str(profile_path))
                     firefox_options.profile = firefox_profile
                 else:
-                    logger.warning(f"Profil Firefox non trouvé: {profile_path}, utilisation du profil par défaut")
+                    logger.warning(
+                        f"Profil Firefox non trouvé: {profile_path}, utilisation du profil par défaut"
+                    )
             else:
                 # Créer un profil temporaire avec les préférences de téléchargement
                 logger.info("Création d'un profil Firefox temporaire...")
                 firefox_profile = FirefoxProfile()
                 firefox_profile.set_preference("browser.download.folderList", 2)
-                firefox_profile.set_preference("browser.download.dir", str(self.download_path.absolute()))
+                firefox_profile.set_preference(
+                    "browser.download.dir", str(self.download_path.absolute())
+                )
                 firefox_profile.set_preference("browser.download.useDownloadDir", True)
-                firefox_profile.set_preference("browser.helperApps.neverAsk.saveToDisk", "application/pdf")
+                firefox_profile.set_preference(
+                    "browser.helperApps.neverAsk.saveToDisk", "application/pdf"
+                )
                 firefox_options.profile = firefox_profile
-            
+
             logger.info("Installation/téléchargement de GeckoDriver...")
             driver_path = GeckoDriverManager().install()
             logger.info(f"Chemin GeckoDriver: {driver_path}")
-            
+
             service = FirefoxService(driver_path)
             logger.info("Création de l'instance WebDriver Firefox...")
             # Ajouter un timeout pour éviter que ça bloque trop longtemps
             import socket
+
             socket.setdefaulttimeout(10)  # 10 secondes de timeout
             try:
                 driver = webdriver.Firefox(service=service, options=firefox_options)
@@ -272,17 +326,20 @@ class AmazonInvoiceDownloader:
         except Exception as e:
             logger.error(f"Erreur lors de la création du driver Firefox: {str(e)}")
             import traceback
+
             logger.error(f"Traceback: {traceback.format_exc()}")
             # Message d'erreur plus explicite
             error_msg = str(e)
             if "WinError 10061" in error_msg or "refused" in error_msg.lower():
                 error_msg = "Impossible de se connecter à Firefox. Assurez-vous que Firefox n'est pas déjà ouvert avec ce profil, ou fermez Firefox et réessayez."
-            raise Exception(f"Impossible de créer le driver Firefox: {error_msg}") from e
-    
+            raise Exception(
+                f"Impossible de créer le driver Firefox: {error_msg}"
+            ) from e
+
     def _is_2fa_required(self) -> bool:
         """
         Vérifie si Amazon demande un code 2FA.
-        
+
         Returns:
             True si un code 2FA est requis, False sinon
         """
@@ -290,7 +347,7 @@ class AmazonInvoiceDownloader:
             if not self.driver:
                 logger.debug("Driver non initialisé, 2FA non requis")
                 return False
-            
+
             # Vérifier différents sélecteurs possibles pour la page 2FA
             selectors_2fa = [
                 "input[name='otpCode']",
@@ -302,7 +359,7 @@ class AmazonInvoiceDownloader:
                 "input[aria-label*='code']",
                 "input[aria-label*='Code']",
             ]
-            
+
             for selector in selectors_2fa:
                 try:
                     self.driver.find_element(By.CSS_SELECTOR, selector)
@@ -310,55 +367,58 @@ class AmazonInvoiceDownloader:
                     return True
                 except NoSuchElementException:
                     continue
-            
+
             # Vérifier aussi par le texte de la page
             page_text = self.driver.page_source.lower()
-            if any(keyword in page_text for keyword in [
-                "code de vérification",
-                "verification code",
-                "code à 6 chiffres",
-                "6-digit code",
-                "entrez le code",
-                "enter the code",
-                "authentification à deux facteurs",
-                "two-factor authentication"
-            ]):
+            if any(
+                keyword in page_text
+                for keyword in [
+                    "code de vérification",
+                    "verification code",
+                    "code à 6 chiffres",
+                    "6-digit code",
+                    "entrez le code",
+                    "enter the code",
+                    "authentification à deux facteurs",
+                    "two-factor authentication",
+                ]
+            ):
                 logger.info("Code 2FA détecté via texte de la page")
                 return True
-            
+
             return False
-        
+
         except Exception as e:
             logger.warning(f"Erreur lors de la détection 2FA: {str(e)}")
             return False
-    
+
     async def _handle_2fa(self, otp_code: Optional[str] = None) -> bool:
         """
         Gère l'authentification à deux facteurs.
-        
+
         Args:
             otp_code: Code OTP fourni (si None, utilise pending_otp ou callback)
-        
+
         Returns:
             True si le code est accepté, False sinon
         """
         try:
             if not self.driver:
                 return False
-            
+
             wait = WebDriverWait(self.driver, self.timeout)
-            
+
             # Obtenir le code OTP
             code_to_use = otp_code or self.pending_otp
-            
+
             if not code_to_use and self.otp_callback:
                 logger.info("Demande du code OTP via callback...")
                 code_to_use = await self.otp_callback()
-            
+
             if not code_to_use:
                 logger.error("Aucun code OTP disponible")
                 return False
-            
+
             logger.info("Saisie du code 2FA...")
 
             # Attendre un peu pour que la page charge complètement
@@ -393,7 +453,10 @@ class AmazonInvoiceDownloader:
                     logger.info("Tentative avec XPath placeholder/aria-label...")
                     otp_input = wait.until(
                         EC.presence_of_element_located(
-                            (By.XPATH, "//input[@type='text' and (contains(@placeholder, 'code') or contains(@aria-label, 'code') or contains(@id, 'otp') or contains(@name, 'otp'))]")
+                            (
+                                By.XPATH,
+                                "//input[@type='text' and (contains(@placeholder, 'code') or contains(@aria-label, 'code') or contains(@id, 'otp') or contains(@name, 'otp'))]",
+                            )
                         )
                     )
                     logger.info("Champ OTP trouvé avec XPath")
@@ -403,27 +466,38 @@ class AmazonInvoiceDownloader:
             if not otp_input:
                 # Dernière tentative : chercher tous les inputs visibles de type text/tel/number
                 try:
-                    logger.info("Dernière tentative : recherche de tous les inputs visibles...")
-                    all_inputs = self.driver.find_elements(By.CSS_SELECTOR, "input[type='text'], input[type='tel'], input[type='number']")
+                    logger.info(
+                        "Dernière tentative : recherche de tous les inputs visibles..."
+                    )
+                    all_inputs = self.driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "input[type='text'], input[type='tel'], input[type='number']",
+                    )
                     for inp in all_inputs:
                         if inp.is_displayed():
-                            logger.info(f"Input trouvé - id: {inp.get_attribute('id')}, name: {inp.get_attribute('name')}, type: {inp.get_attribute('type')}")
+                            logger.info(
+                                f"Input trouvé - id: {inp.get_attribute('id')}, name: {inp.get_attribute('name')}, type: {inp.get_attribute('type')}"
+                            )
                             otp_input = inp
                             break
                 except Exception as e:
-                    logger.error(f"Erreur lors de la recherche de tous les inputs: {str(e)}")
+                    logger.error(
+                        f"Erreur lors de la recherche de tous les inputs: {str(e)}"
+                    )
 
             if not otp_input:
-                logger.error("Champ de saisie du code OTP introuvable après toutes les tentatives")
+                logger.error(
+                    "Champ de saisie du code OTP introuvable après toutes les tentatives"
+                )
                 logger.error(f"URL actuelle: {self.driver.current_url}")
                 logger.error(f"Titre de la page: {self.driver.title}")
                 return False
-            
+
             # Saisir le code
             otp_input.clear()
             otp_input.send_keys(code_to_use)
             time.sleep(1)
-            
+
             # Trouver et cliquer sur le bouton de soumission
             submit_selectors = [
                 "button[type='submit']",
@@ -433,7 +507,7 @@ class AmazonInvoiceDownloader:
                 "input[id*='continue']",
                 "input[id*='submit']",
             ]
-            
+
             submit_button = None
             for selector in submit_selectors:
                 try:
@@ -441,7 +515,15 @@ class AmazonInvoiceDownloader:
                     # Préférer les boutons contenant "continue" ou "submit" dans le texte
                     for btn in buttons:
                         btn_text = btn.text.lower()
-                        if any(keyword in btn_text for keyword in ["continuer", "continue", "soumettre", "submit"]):
+                        if any(
+                            keyword in btn_text
+                            for keyword in [
+                                "continuer",
+                                "continue",
+                                "soumettre",
+                                "submit",
+                            ]
+                        ):
                             submit_button = btn
                             break
                     if submit_button:
@@ -451,17 +533,18 @@ class AmazonInvoiceDownloader:
                         break
                 except NoSuchElementException:
                     continue
-            
+
             if submit_button:
                 submit_button.click()
             else:
                 # Fallback: appuyer sur Enter dans le champ
                 from selenium.webdriver.common.keys import Keys
+
                 otp_input.send_keys(Keys.RETURN)
-            
+
             # Attendre la validation
             time.sleep(5)
-            
+
             # Vérifier si la connexion a réussi
             if not self._is_2fa_required():
                 logger.info("Code 2FA accepté")
@@ -470,11 +553,11 @@ class AmazonInvoiceDownloader:
             else:
                 logger.warning("Le code 2FA semble incorrect ou expiré")
                 return False
-        
+
         except Exception as e:
             logger.error(f"Erreur lors de la gestion 2FA: {str(e)}")
             return False
-    
+
     def _is_logged_in(self) -> bool:
         """Verifie si on est deja connecte a Amazon (session existante)."""
         try:
@@ -513,7 +596,9 @@ class AmazonInvoiceDownloader:
             True si la connexion réussit, False sinon
         """
         try:
-            logger.info(f"=== DEBUT LOGIN === manual_mode={self.manual_mode}, otp_code={'fourni' if otp_code else 'non fourni'}")
+            logger.info(
+                f"=== DEBUT LOGIN === manual_mode={self.manual_mode}, otp_code={'fourni' if otp_code else 'non fourni'}"
+            )
 
             if not self.driver:
                 logger.info("Driver non initialise, creation du driver...")
@@ -522,18 +607,22 @@ class AmazonInvoiceDownloader:
             else:
                 # Verifier si on est deja connecte (session existante)
                 if self._is_logged_in():
-                    logger.info("Session existante detectee, pas besoin de se reconnecter")
+                    logger.info(
+                        "Session existante detectee, pas besoin de se reconnecter"
+                    )
                     return True
 
             logger.info(f"Connexion a Amazon...")
-            
+
             # Si on utilise Firefox avec un profil existant, on peut être déjà connecté
             if self.browser == "firefox" and self.firefox_profile_path:
-                logger.info("Utilisation d'un profil Firefox existant - vérification de la connexion...")
+                logger.info(
+                    "Utilisation d'un profil Firefox existant - vérification de la connexion..."
+                )
                 # Aller directement sur Amazon pour vérifier si on est connecté
                 self.driver.get(self.AMAZON_BASE_URL)
                 time.sleep(3)
-                
+
                 # Vérifier si on est déjà connecté
                 try:
                     # Chercher des éléments qui indiquent qu'on est connecté
@@ -541,46 +630,65 @@ class AmazonInvoiceDownloader:
                         (By.ID, "nav-link-accountList"),
                         (By.ID, "nav-orders"),
                     ]
-                    
+
                     connected = False
                     for by, selector in account_elements:
                         try:
                             element = self.driver.find_element(by, selector)
                             if element:
                                 # Vérifier le texte pour s'assurer qu'on n'est pas sur "Se connecter"
-                                element_text = element.text.lower() if hasattr(element, 'text') else ""
-                                if "connecter" not in element_text and "sign in" not in element_text:
-                                    logger.info("Connexion détectée via profil Firefox existant !")
+                                element_text = (
+                                    element.text.lower()
+                                    if hasattr(element, "text")
+                                    else ""
+                                )
+                                if (
+                                    "connecter" not in element_text
+                                    and "sign in" not in element_text
+                                ):
+                                    logger.info(
+                                        "Connexion détectée via profil Firefox existant !"
+                                    )
                                     connected = True
                                     break
                         except NoSuchElementException:
                             continue
-                    
+
                     if connected:
                         logger.info("Déjà connecté à Amazon via le profil Firefox")
                         return True
                     else:
-                        logger.info("Non connecté, redirection vers la page de connexion...")
+                        logger.info(
+                            "Non connecté, redirection vers la page de connexion..."
+                        )
                         self.driver.get(self.AMAZON_LOGIN_URL)
                         time.sleep(2)
                 except Exception as e:
-                    logger.warning(f"Erreur lors de la vérification de connexion: {str(e)}")
+                    logger.warning(
+                        f"Erreur lors de la vérification de connexion: {str(e)}"
+                    )
                     self.driver.get(self.AMAZON_LOGIN_URL)
                     time.sleep(2)
             else:
                 # Essayer d'abord l'URL directe de connexion
-                logger.info(f"Chargement de l'URL de connexion Amazon: {self.AMAZON_LOGIN_URL}")
+                logger.info(
+                    f"Chargement de l'URL de connexion Amazon: {self.AMAZON_LOGIN_URL}"
+                )
                 self.driver.get(self.AMAZON_LOGIN_URL)
                 time.sleep(2)
                 logger.info("Page de connexion chargée")
 
             # En mode manuel, skip toute la logique complexe et laisser l'utilisateur se connecter
-            logger.info(f"=== VÉRIFICATION MODE MANUEL: manual_mode={self.manual_mode} ===")
+            logger.info(
+                f"=== VÉRIFICATION MODE MANUEL: manual_mode={self.manual_mode} ==="
+            )
             if self.manual_mode:
                 logger.info("=== MODE MANUEL ACTIVÉ ===")
                 logger.info("Une fenêtre Chrome s'est ouverte sur Amazon")
                 logger.info("Veuillez vous connecter manuellement dans le navigateur")
-                logger.info("Le script attendra jusqu'à 5 minutes que vous soyez connecté")
+                logger.info(
+                    "Le script attendra jusqu'à 5 minutes que vous soyez connecté"
+                )
                 logger.info("=========================")
 
                 # Attendre que l'utilisateur soit connecté
@@ -594,7 +702,10 @@ class AmazonInvoiceDownloader:
 
                     current_url = self.driver.current_url
                     # Vérifier si on est connecté (pas sur la page de login)
-                    if "/ap/signin" not in current_url and "/ap/cvf/request" not in current_url:
+                    if (
+                        "/ap/signin" not in current_url
+                        and "/ap/cvf/request" not in current_url
+                    ):
                         # Vérifier si on a les éléments de navigation
                         try:
                             self.driver.find_element(By.ID, "nav-link-accountList")
@@ -604,9 +715,13 @@ class AmazonInvoiceDownloader:
                             # Peut-être qu'on est sur une autre page, continuer à attendre
                             pass
 
-                    logger.info(f"Attente de connexion manuelle... ({elapsed_time}s/{max_wait_time}s)")
+                    logger.info(
+                        f"Attente de connexion manuelle... ({elapsed_time}s/{max_wait_time}s)"
+                    )
 
-                logger.warning("Timeout en mode manuel - connexion non détectée après 5 minutes")
+                logger.warning(
+                    "Timeout en mode manuel - connexion non détectée après 5 minutes"
+                )
                 return False
 
             # Vérifier si on est sur une page d'erreur ou si on doit naviguer différemment
@@ -616,16 +731,26 @@ class AmazonInvoiceDownloader:
 
             logger.info(f"URL après chargement: {current_url}")
             logger.info(f"Titre de la page: {self.driver.title}")
-            
+
             # Si on est sur une page d'erreur ou la page d'accueil, essayer de naviguer vers la connexion
-            if "recherchez quelque chose" in page_source or "page d'accueil" in page_title or ("amazon.fr" in current_url and "/ap/signin" not in current_url and "/gp/" not in current_url):
-                logger.info("Page d'erreur ou page d'accueil détectée, navigation vers la connexion...")
+            if (
+                "recherchez quelque chose" in page_source
+                or "page d'accueil" in page_title
+                or (
+                    "amazon.fr" in current_url
+                    and "/ap/signin" not in current_url
+                    and "/gp/" not in current_url
+                )
+            ):
+                logger.info(
+                    "Page d'erreur ou page d'accueil détectée, navigation vers la connexion..."
+                )
                 # Essayer d'abord directement l'URL de connexion avec paramètres complets
                 logger.info("Tentative avec URL de connexion directe...")
                 direct_login_url = f"{self.AMAZON_BASE_URL}/ap/signin?openid.pape.max_auth_age=0&openid.return_to=https%3A%2F%2Fwww.amazon.fr%2F%3Fref_%3Dnav_signin&prevRID=&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.assoc_handle=frflex&openid.mode=checkid_setup&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&pageId=frflex&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0"
                 self.driver.get(direct_login_url)
                 time.sleep(3)
-                
+
                 # Vérifier si on a maintenant le champ email
                 email_found = False
                 try:
@@ -633,11 +758,13 @@ class AmazonInvoiceDownloader:
                     logger.info("Page de connexion chargée directement avec succès")
                     email_found = True
                 except NoSuchElementException:
-                    logger.info("URL directe n'a pas fonctionné, tentative via page d'accueil...")
+                    logger.info(
+                        "URL directe n'a pas fonctionné, tentative via page d'accueil..."
+                    )
                     # Si ça ne fonctionne pas, essayer via la page d'accueil
                     self.driver.get(self.AMAZON_BASE_URL)
                     time.sleep(2)
-                
+
                 # Si l'email n'a pas été trouvé, essayer de cliquer sur le lien
                 if not email_found:
                     # Chercher le lien "Se connecter" ou "Compte et listes"
@@ -651,41 +778,55 @@ class AmazonInvoiceDownloader:
                             "//a[contains(text(), 'Compte et listes')]",
                             "//span[contains(text(), 'Bonjour')]/parent::a",
                         ]
-                        
+
                         sign_in_link = None
                         for selector in sign_in_selectors:
                             try:
                                 if selector.startswith("//"):
-                                    sign_in_link = self.driver.find_element(By.XPATH, selector)
+                                    sign_in_link = self.driver.find_element(
+                                        By.XPATH, selector
+                                    )
                                 else:
-                                    sign_in_link = self.driver.find_element(By.CSS_SELECTOR, selector)
+                                    sign_in_link = self.driver.find_element(
+                                        By.CSS_SELECTOR, selector
+                                    )
                                 if sign_in_link:
-                                    logger.info(f"Lien de connexion trouvé avec: {selector}")
+                                    logger.info(
+                                        f"Lien de connexion trouvé avec: {selector}"
+                                    )
                                     # Essayer de cliquer normalement
                                     try:
                                         sign_in_link.click()
                                     except Exception:
                                         # Si le clic normal échoue, utiliser JavaScript
-                                        logger.info("Clic normal échoué, utilisation de JavaScript...")
-                                        self.driver.execute_script("arguments[0].click();", sign_in_link)
+                                        logger.info(
+                                            "Clic normal échoué, utilisation de JavaScript..."
+                                        )
+                                        self.driver.execute_script(
+                                            "arguments[0].click();", sign_in_link
+                                        )
                                     time.sleep(3)
                                     break
                             except NoSuchElementException:
                                 continue
                             except Exception as e:
-                                logger.warning(f"Erreur avec le sélecteur {selector}: {str(e)}")
+                                logger.warning(
+                                    f"Erreur avec le sélecteur {selector}: {str(e)}"
+                                )
                                 continue
-                        
+
                         if not sign_in_link:
                             # Essayer directement l'URL de connexion avec des paramètres
-                            logger.info("Lien de connexion non trouvé, tentative avec URL directe...")
+                            logger.info(
+                                "Lien de connexion non trouvé, tentative avec URL directe..."
+                            )
                             # Essayer plusieurs variantes d'URL de connexion
                             login_urls = [
                                 f"{self.AMAZON_BASE_URL}/ap/signin?openid.pape.max_auth_age=0&openid.return_to=https%3A%2F%2Fwww.amazon.fr%2F%3Fref_%3Dnav_signin&prevRID=&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.assoc_handle=frflex&openid.mode=checkid_setup&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&pageId=frflex&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0",
                                 f"{self.AMAZON_BASE_URL}/ap/signin",
                                 f"{self.AMAZON_BASE_URL}/gp/navigation-country/select-country.html?language=fr_FR&ref_=nav_em_hdr_signin",
                             ]
-                            
+
                             for url in login_urls:
                                 try:
                                     logger.info(f"Tentative avec URL: {url}")
@@ -694,7 +835,9 @@ class AmazonInvoiceDownloader:
                                     # Vérifier si on a le champ email maintenant
                                     try:
                                         self.driver.find_element(By.ID, "ap_email")
-                                        logger.info("Page de connexion chargée avec succès")
+                                        logger.info(
+                                            "Page de connexion chargée avec succès"
+                                        )
                                         break
                                     except NoSuchElementException:
                                         continue
@@ -702,7 +845,9 @@ class AmazonInvoiceDownloader:
                                     logger.warning(f"Erreur avec URL {url}: {str(e)}")
                                     continue
                     except Exception as e:
-                        logger.warning(f"Erreur lors de la navigation vers la connexion: {str(e)}")
+                        logger.warning(
+                            f"Erreur lors de la navigation vers la connexion: {str(e)}"
+                        )
                         # Essayer quand même l'URL de connexion standard
                         self.driver.get(self.AMAZON_LOGIN_URL)
                         time.sleep(3)
@@ -719,10 +864,14 @@ class AmazonInvoiceDownloader:
                 email_input.clear()
                 email_input.send_keys(self.email)
             except TimeoutException:
-                logger.error("Champ email non trouvé - la page n'a peut-être pas chargé correctement")
+                logger.error(
+                    "Champ email non trouvé - la page n'a peut-être pas chargé correctement"
+                )
                 logger.error(f"URL actuelle: {self.driver.current_url}")
                 logger.error(f"Titre de la page: {self.driver.title}")
-                raise Exception("Impossible de trouver le champ email sur la page de connexion")
+                raise Exception(
+                    "Impossible de trouver le champ email sur la page de connexion"
+                )
 
             # Cliquer sur continuer
             logger.info("Recherche du bouton continuer...")
@@ -767,20 +916,20 @@ class AmazonInvoiceDownloader:
                 logger.info("Authentification à deux facteurs requise")
                 if otp_code:
                     self.pending_otp = otp_code
-                
+
                 if await self._handle_2fa(otp_code):
                     # Attendre encore un peu après la validation du code
                     time.sleep(3)
                 else:
                     logger.warning("Échec de la validation du code 2FA")
                     return False
-            
+
             # Vérifier si on est connecté (présence du menu compte ou des commandes)
             logger.info("Vérification de la connexion...")
             current_url = self.driver.current_url
             logger.info(f"URL actuelle après connexion: {current_url}")
             logger.info(f"Titre de la page: {self.driver.title}")
-            
+
             # Vérifier d'abord l'URL
             if "/ap/signin" in current_url or "/ap/cvf/request" in current_url:
                 logger.warning("Toujours sur la page de connexion")
@@ -791,37 +940,45 @@ class AmazonInvoiceDownloader:
                 else:
                     logger.error("Sur la page de connexion mais 2FA non détectée")
                     return False
-            
+
             # Si on n'est pas sur la page de login, vérifier les éléments de la page connectée
             try:
                 # Créer wait si pas déjà défini (pour le mode manuel ou Firefox)
-                if 'wait' not in locals():
+                if "wait" not in locals():
                     wait = WebDriverWait(self.driver, self.timeout)
-                
+
                 wait.until(
                     EC.any_of(
                         EC.presence_of_element_located((By.ID, "nav-link-accountList")),
                         EC.presence_of_element_located((By.ID, "nav-orders")),
                         EC.url_contains("amazon.fr"),
-                        EC.url_contains("amazon.com")
+                        EC.url_contains("amazon.com"),
                     )
                 )
                 logger.info("Connexion réussie - éléments de navigation trouvés")
                 return True
             except TimeoutException:
                 # Vérifier l'URL pour être sûr
-                logger.warning("Timeout lors de la recherche des éléments de navigation")
+                logger.warning(
+                    "Timeout lors de la recherche des éléments de navigation"
+                )
                 logger.info(f"URL finale: {self.driver.current_url}")
                 # Si on n'est pas sur la page de login, on considère qu'on est connecté
-                if "/ap/signin" not in current_url and "/ap/cvf/request" not in current_url:
+                if (
+                    "/ap/signin" not in current_url
+                    and "/ap/cvf/request" not in current_url
+                ):
                     logger.info("Connexion réussie (vérification par URL uniquement)")
                     return True
                 else:
-                    logger.error("Connexion échouée - page de connexion toujours présente")
+                    logger.error(
+                        "Connexion échouée - page de connexion toujours présente"
+                    )
                     return False
-        
+
         except Exception as e:
             import traceback
+
             logger.error(f"Erreur lors de la connexion: {str(e)}")
             logger.error(f"Type d'erreur: {type(e).__name__}")
             logger.error(f"Traceback complet:\n{traceback.format_exc()}")
@@ -829,27 +986,29 @@ class AmazonInvoiceDownloader:
             if "Impossible de" in str(e) or "non trouvé" in str(e).lower():
                 raise
             return False
-    
+
     async def submit_otp(self, otp_code: str) -> bool:
         """
         Soumet un code OTP pour la 2FA et complète la connexion.
-        
+
         Args:
             otp_code: Code OTP à soumettre
-        
+
         Returns:
             True si le code est accepté et la connexion réussit
         """
         self.pending_otp = otp_code
-        
+
         # Si le driver n'est pas initialisé, on doit d'abord faire le login
         if not self.driver:
-            logger.info("Driver non initialisé, démarrage de la connexion avec code OTP...")
+            logger.info(
+                "Driver non initialisé, démarrage de la connexion avec code OTP..."
+            )
             return await self.login(otp_code=otp_code)
-        
+
         # Sinon, on gère juste la 2FA
         success = await self._handle_2fa(otp_code)
-        
+
         # Si la 2FA est acceptée, vérifier que la connexion est complète
         if success:
             # Attendre un peu pour que la page se charge
@@ -857,27 +1016,32 @@ class AmazonInvoiceDownloader:
             # Vérifier qu'on est bien connecté
             try:
                 current_url = self.driver.current_url
-                if "/ap/signin" not in current_url and "/ap/cvf/request" not in current_url:
+                if (
+                    "/ap/signin" not in current_url
+                    and "/ap/cvf/request" not in current_url
+                ):
                     logger.info("Connexion complétée après 2FA")
                     return True
                 else:
                     logger.warning("Toujours sur la page de connexion après 2FA")
                     return False
             except Exception as e:
-                logger.error(f"Erreur lors de la vérification de connexion après 2FA: {str(e)}")
+                logger.error(
+                    f"Erreur lors de la vérification de connexion après 2FA: {str(e)}"
+                )
                 return False
-        
+
         return success
-    
+
     def is_2fa_required(self) -> bool:
         """
         Vérifie si un code 2FA est actuellement requis.
-        
+
         Returns:
             True si un code 2FA est requis
         """
         return self._is_2fa_required()
-    
+
     def _is_on_orders_page(self) -> bool:
         """Vérifie si on est réellement sur la page des commandes (pas sur /ap/signin)."""
         try:
@@ -887,6 +1051,7 @@ class AmazonInvoiceDownloader:
                 return False
             # Vérifier le chemin de l'URL (pas les query params)
             from urllib.parse import urlparse
+
             path = urlparse(current_url).path.lower()
             return "order-history" in path or "your-orders" in path or "order" in path
         except Exception:
@@ -905,8 +1070,14 @@ class AmazonInvoiceDownloader:
             next_selectors = [
                 (By.CSS_SELECTOR, "ul.a-pagination li.a-last:not(.a-disabled) a"),
                 (By.CSS_SELECTOR, ".a-pagination .a-last a:not(.a-disabled)"),
-                (By.XPATH, "//span[contains(@class,'a-pagination')]//li[contains(@class,'a-last') and not(contains(@class,'a-disabled'))]//a"),
-                (By.XPATH, "//a[contains(text(),'Suivant') or contains(text(),'Next')]"),
+                (
+                    By.XPATH,
+                    "//span[contains(@class,'a-pagination')]//li[contains(@class,'a-last') and not(contains(@class,'a-disabled'))]//a",
+                ),
+                (
+                    By.XPATH,
+                    "//a[contains(text(),'Suivant') or contains(text(),'Next')]",
+                ),
                 (By.CSS_SELECTOR, "a.s-pagination-next:not(.s-pagination-disabled)"),
                 (By.CSS_SELECTOR, "a[href*='pageToken']"),
             ]
@@ -941,7 +1112,10 @@ class AmazonInvoiceDownloader:
             next_selectors = [
                 (By.CSS_SELECTOR, "ul.a-pagination li.a-last:not(.a-disabled) a"),
                 (By.CSS_SELECTOR, ".a-pagination .a-last a"),
-                (By.XPATH, "//a[contains(text(),'Suivant') or contains(text(),'Next')]"),
+                (
+                    By.XPATH,
+                    "//a[contains(text(),'Suivant') or contains(text(),'Next')]",
+                ),
                 (By.CSS_SELECTOR, "a.s-pagination-next:not(.s-pagination-disabled)"),
                 (By.CSS_SELECTOR, "a[href*='pageToken']"),
             ]
@@ -960,7 +1134,9 @@ class AmazonInvoiceDownloader:
                         href = elem.get_attribute("href")
                         logger.info("Passage à la page suivante des commandes...")
                         try:
-                            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elem)
+                            self.driver.execute_script(
+                                "arguments[0].scrollIntoView({block: 'center'});", elem
+                            )
                             time.sleep(0.5)
                             elem.click()
                         except Exception:
@@ -1031,8 +1207,14 @@ class AmazonInvoiceDownloader:
                 (By.ID, "orderFilter"),
                 (By.CSS_SELECTOR, "select[name='orderFilter']"),
                 (By.CSS_SELECTOR, "select#orderFilter"),
-                (By.XPATH, "//select[contains(@name,'order') or contains(@id,'order') or contains(@id,'filter')]"),
-                (By.CSS_SELECTOR, "#ordersContainer select, .order-history select, select.a-native-dropdown"),
+                (
+                    By.XPATH,
+                    "//select[contains(@name,'order') or contains(@id,'order') or contains(@id,'filter')]",
+                ),
+                (
+                    By.CSS_SELECTOR,
+                    "#ordersContainer select, .order-history select, select.a-native-dropdown",
+                ),
             ]:
                 try:
                     elems = self.driver.find_elements(by, selector)
@@ -1045,7 +1227,9 @@ class AmazonInvoiceDownloader:
                 except NoSuchElementException:
                     continue
             if not select_elem:
-                logger.warning("Liste déroulante période des commandes non trouvée; poursuite sans filtre.")
+                logger.warning(
+                    "Liste déroulante période des commandes non trouvée; poursuite sans filtre."
+                )
                 return True
             sel = Select(select_elem)
             try:
@@ -1057,7 +1241,10 @@ class AmazonInvoiceDownloader:
                 for opt in sel.options:
                     if option_text in (opt.text or "").strip():
                         opt.click()
-                        logger.info("Période des commandes sélectionnée (option): %s", option_text)
+                        logger.info(
+                            "Période des commandes sélectionnée (option): %s",
+                            option_text,
+                        )
                         time.sleep(3)
                         return True
                 raise
@@ -1075,7 +1262,9 @@ class AmazonInvoiceDownloader:
         try:
             # En mode manuel, on est déjà connecté - naviguer directement
             if self.manual_mode:
-                logger.info("Mode manuel: navigation automatique vers la page des commandes...")
+                logger.info(
+                    "Mode manuel: navigation automatique vers la page des commandes..."
+                )
                 self.driver.get(self.AMAZON_ORDERS_URL)
                 time.sleep(5)
 
@@ -1084,7 +1273,9 @@ class AmazonInvoiceDownloader:
 
                 # Si redirigé vers login, attendre que l'utilisateur se connecte
                 if "/ap/signin" in current_url or "/ap/cvf/" in current_url:
-                    logger.info("Redirection vers login détectée, attente de connexion manuelle...")
+                    logger.info(
+                        "Redirection vers login détectée, attente de connexion manuelle..."
+                    )
                     max_wait = 300
                     elapsed = 0
                     while elapsed < max_wait:
@@ -1093,10 +1284,14 @@ class AmazonInvoiceDownloader:
                             time.sleep(3)
                             return True
                         if elapsed % 10 == 0:
-                            logger.info(f"Attente de navigation vers les commandes... ({elapsed}s/{max_wait}s)")
+                            logger.info(
+                                f"Attente de navigation vers les commandes... ({elapsed}s/{max_wait}s)"
+                            )
                         time.sleep(5)
                         elapsed += 5
-                    logger.error(f"Timeout: page des commandes non atteinte en {max_wait}s")
+                    logger.error(
+                        f"Timeout: page des commandes non atteinte en {max_wait}s"
+                    )
                     return False
 
                 # Vérifier qu'on est bien sur les commandes
@@ -1129,9 +1324,7 @@ class AmazonInvoiceDownloader:
 
             # Vérifier qu'on est sur la page des commandes
             wait = WebDriverWait(self.driver, 20)
-            wait.until(
-                EC.presence_of_element_located((By.ID, "ordersContainer"))
-            )
+            wait.until(EC.presence_of_element_located((By.ID, "ordersContainer")))
             logger.info("Page des commandes chargee")
             time.sleep(2)
             return True
@@ -1139,7 +1332,7 @@ class AmazonInvoiceDownloader:
         except Exception as e:
             logger.error(f"Erreur lors de la navigation: {str(e)}")
             return False
-    
+
     def _log_order_html(self, order_element, index: int) -> None:
         """Log le HTML d'une commande pour debug (uniquement la première)."""
         if index == 0:
@@ -1148,7 +1341,9 @@ class AmazonInvoiceDownloader:
                 # Tronquer à 3000 caractères pour les logs
                 if len(html) > 3000:
                     html = html[:3000] + "... [tronqué]"
-                logger.info(f"=== HTML de la commande #{index} ===\n{html}\n=== FIN HTML ===")
+                logger.info(
+                    f"=== HTML de la commande #{index} ===\n{html}\n=== FIN HTML ==="
+                )
             except Exception as e:
                 logger.warning(f"Impossible de logger le HTML: {e}")
 
@@ -1174,9 +1369,25 @@ class AmazonInvoiceDownloader:
                     if month and 1 <= day <= 31 and 2020 <= year <= 2030:
                         return date_type(year, month, day)
             # EN: "Ordered on Jan 15, 2025", "Jan 15, 2025"
-            en_months = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-                         "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
-            match = re.search(r"(?:Ordered on\s+)?(\w{3})\s+(\d{1,2}),?\s+(\d{4})", text, re.IGNORECASE)
+            en_months = {
+                "jan": 1,
+                "feb": 2,
+                "mar": 3,
+                "apr": 4,
+                "may": 5,
+                "jun": 6,
+                "jul": 7,
+                "aug": 8,
+                "sep": 9,
+                "oct": 10,
+                "nov": 11,
+                "dec": 12,
+            }
+            match = re.search(
+                r"(?:Ordered on\s+)?(\w{3})\s+(\d{1,2}),?\s+(\d{4})",
+                text,
+                re.IGNORECASE,
+            )
             if match:
                 month = en_months.get(match.group(1).lower())
                 if month:
@@ -1188,7 +1399,9 @@ class AmazonInvoiceDownloader:
             logger.debug("Parse date commande: %s", e)
         return None
 
-    def _get_order_id_from_element(self, order_element: Any, fallback_index: int) -> str:
+    def _get_order_id_from_element(
+        self, order_element: Any, fallback_index: int
+    ) -> str:
         """Retourne l'identifiant de commande Amazon (id réel si possible, sinon fallback)."""
         # 1) Attribut data-order-id explicite (cas idéal)
         try:
@@ -1249,11 +1462,26 @@ class AmazonInvoiceDownloader:
     def _get_invoice_url_from_popover(self) -> Optional[str]:
         """Recupere l'URL du lien 'Facture' dans un popover Amazon ouvert."""
         popover_selectors = [
-            (By.XPATH, "//div[contains(@class, 'a-popover') and not(contains(@style, 'display: none'))]//a[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'facture')]"),
-            (By.CSS_SELECTOR, ".a-popover:not([style*='display: none']) .a-popover-content a[href*='invoice']"),
-            (By.CSS_SELECTOR, ".a-popover:not([style*='display: none']) .a-popover-content a[href*='generated']"),
-            (By.CSS_SELECTOR, ".a-popover:not([style*='display: none']) .a-popover-content a[href*='document']"),
-            (By.XPATH, "//div[contains(@class, 'a-popover') and not(contains(@style, 'display: none'))]//ul//a"),
+            (
+                By.XPATH,
+                "//div[contains(@class, 'a-popover') and not(contains(@style, 'display: none'))]//a[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'facture')]",
+            ),
+            (
+                By.CSS_SELECTOR,
+                ".a-popover:not([style*='display: none']) .a-popover-content a[href*='invoice']",
+            ),
+            (
+                By.CSS_SELECTOR,
+                ".a-popover:not([style*='display: none']) .a-popover-content a[href*='generated']",
+            ),
+            (
+                By.CSS_SELECTOR,
+                ".a-popover:not([style*='display: none']) .a-popover-content a[href*='document']",
+            ),
+            (
+                By.XPATH,
+                "//div[contains(@class, 'a-popover') and not(contains(@style, 'display: none'))]//ul//a",
+            ),
         ]
 
         for by, selector in popover_selectors:
@@ -1261,13 +1489,16 @@ class AmazonInvoiceDownloader:
                 links = self.driver.find_elements(by, selector)
                 for link in links:
                     text = (link.text or "").strip().lower()
-                    href = (link.get_attribute("href") or "")
+                    href = link.get_attribute("href") or ""
                     logger.info(f"  Popover lien: texte='{text}', href='{href[:100]}'")
                     # Prendre "Facture" mais pas "Recapitulatif de commande imprimable"
                     if text == "facture" or "invoice" in text.lower():
                         return href
                     if "invoice" in href.lower() or "document" in href.lower():
-                        if "summary" not in href.lower() and "recap" not in href.lower():
+                        if (
+                            "summary" not in href.lower()
+                            and "recap" not in href.lower()
+                        ):
                             return href
             except Exception:
                 continue
@@ -1276,12 +1507,15 @@ class AmazonInvoiceDownloader:
     def _get_browser_cookies_session(self):
         """Cree une session requests avec les cookies du navigateur."""
         import requests as req
+
         session = req.Session()
         for cookie in self.driver.get_cookies():
-            session.cookies.set(cookie['name'], cookie['value'], domain=cookie.get('domain', ''))
-        session.headers.update({
-            'User-Agent': self.driver.execute_script("return navigator.userAgent;")
-        })
+            session.cookies.set(
+                cookie["name"], cookie["value"], domain=cookie.get("domain", "")
+            )
+        session.headers.update(
+            {"User-Agent": self.driver.execute_script("return navigator.userAgent;")}
+        )
         return session
 
     def _download_pdf_from_url(
@@ -1329,10 +1563,12 @@ class AmazonInvoiceDownloader:
         try:
             # Appuyer sur Escape pour fermer tout popover
             from selenium.webdriver.common.keys import Keys
+
             self.driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
             time.sleep(0.3)
             # Aussi cacher via JS au cas ou
-            self.driver.execute_script("""
+            self.driver.execute_script(
+                """
                 document.querySelectorAll('.a-popover').forEach(function(p) {
                     p.style.display = 'none';
                     p.style.visibility = 'hidden';
@@ -1341,7 +1577,8 @@ class AmazonInvoiceDownloader:
                 document.querySelectorAll('.a-popover-wrapper, .a-popover-modal').forEach(function(o) {
                     o.remove();
                 });
-            """)
+            """
+            )
             time.sleep(0.3)
         except Exception:
             pass
@@ -1359,9 +1596,15 @@ class AmazonInvoiceDownloader:
         Si la facture est déjà dans le registre et que force_redownload est False, skip.
         """
         try:
-            oid = order_id or self._get_order_id_from_element(order_element, order_index)
-            if not force_redownload and self.registry.is_downloaded(PROVIDER_AMAZON, oid):
-                logger.info("Commande #%s (%s): deja telechargee, skip", order_index, oid)
+            oid = order_id or self._get_order_id_from_element(
+                order_element, order_index
+            )
+            if not force_redownload and self.registry.is_downloaded(
+                PROVIDER_AMAZON, oid
+            ):
+                logger.info(
+                    "Commande #%s (%s): deja telechargee, skip", order_index, oid
+                )
                 return None
 
             self._log_order_html(order_element, order_index)
@@ -1374,7 +1617,9 @@ class AmazonInvoiceDownloader:
 
             logger.info("Commande #%s: clic sur le dropdown 'Facture'...", order_index)
             try:
-                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trigger)
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView({block: 'center'});", trigger
+                )
                 time.sleep(0.5)
                 trigger.click()
             except Exception:
@@ -1385,11 +1630,18 @@ class AmazonInvoiceDownloader:
             self._close_all_popovers()
 
             if not invoice_url:
-                logger.warning("Commande #%s: URL facture non trouvee dans le popover", order_index)
+                logger.warning(
+                    "Commande #%s: URL facture non trouvee dans le popover", order_index
+                )
                 return None
 
-            if not force_redownload and self.registry.is_downloaded_by_url(PROVIDER_AMAZON, invoice_url):
-                logger.info("Commande #%s: facture deja telechargee (meme URL), skip", order_index)
+            if not force_redownload and self.registry.is_downloaded_by_url(
+                PROVIDER_AMAZON, invoice_url
+            ):
+                logger.info(
+                    "Commande #%s: facture deja telechargee (meme URL), skip",
+                    order_index,
+                )
                 return None
 
             logger.info("Commande #%s: telechargement de la facture...", order_index)
@@ -1412,7 +1664,7 @@ class AmazonInvoiceDownloader:
         except Exception as e:
             logger.error("Commande #%s: erreur: %s", order_index, e)
             return None
-    
+
     def _filter_orders_by_date(
         self,
         order_triples: List[Tuple[Any, str, Optional[date_type]]],
@@ -1433,7 +1685,11 @@ class AmazonInvoiceDownloader:
                 start_d = datetime.strptime(date_start_str, "%Y-%m-%d").date()
                 end_d = datetime.strptime(date_end_str, "%Y-%m-%d").date()
             except ValueError:
-                logger.warning("Plage invalide date_start=%s date_end=%s, filtre plage ignoré", date_start_str, date_end_str)
+                logger.warning(
+                    "Plage invalide date_start=%s date_end=%s, filtre plage ignoré",
+                    date_start_str,
+                    date_end_str,
+                )
                 start_d = end_d = None
         else:
             start_d = end_d = None
@@ -1499,10 +1755,15 @@ class AmazonInvoiceDownloader:
                 raise Exception("Impossible d'accéder à la page des commandes")
 
             periods = self._get_amazon_periods_for_request(
-                year=year, month=month, months=months,
-                date_start=date_start, date_end=date_end,
+                year=year,
+                month=month,
+                months=months,
+                date_start=date_start,
+                date_end=date_end,
             )
-            logger.info("Période(s) Amazon à traiter (depuis le filtre interface): %s", periods)
+            logger.info(
+                "Période(s) Amazon à traiter (depuis le filtre interface): %s", periods
+            )
 
             order_selectors = [
                 "[data-order-id]",
@@ -1522,27 +1783,37 @@ class AmazonInvoiceDownloader:
                 self._select_orders_period(period_option)
                 time.sleep(3)
 
-                logger.info("Recherche des commandes sur la page (période: %s)...", period_option)
+                logger.info(
+                    "Recherche des commandes sur la page (période: %s)...",
+                    period_option,
+                )
                 orders = None
                 for selector in order_selectors:
                     try:
                         orders = self.driver.find_elements(By.CSS_SELECTOR, selector)
                         if orders and len(orders) > 0:
-                            logger.info("Commandes trouvees avec selecteur: %s", selector)
+                            logger.info(
+                                "Commandes trouvees avec selecteur: %s", selector
+                            )
                             break
                     except Exception as e:
                         logger.warning("Erreur avec selecteur %s: %s", selector, e)
                         continue
 
                 if not orders or len(orders) == 0:
-                    logger.warning("Aucune commande pour la période %s; passage à la suivante.", period_option)
+                    logger.warning(
+                        "Aucune commande pour la période %s; passage à la suivante.",
+                        period_option,
+                    )
                     continue
 
                 page_num = 1
                 while True:
                     order_triples: List[Tuple[Any, str, Optional[date_type]]] = []
                     for i, order in enumerate(orders):
-                        oid = self._get_order_id_from_element(order, global_order_index + i)
+                        oid = self._get_order_id_from_element(
+                            order, global_order_index + i
+                        )
                         inv_date = self._parse_order_date_from_element(order)
                         order_triples.append((order, oid, inv_date))
 
@@ -1554,10 +1825,24 @@ class AmazonInvoiceDownloader:
                         date_start_str=date_start,
                         date_end_str=date_end,
                     )
-                    if any([date_start, date_end, year is not None, month is not None, months]):
+                    if any(
+                        [
+                            date_start,
+                            date_end,
+                            year is not None,
+                            month is not None,
+                            months,
+                        ]
+                    ):
                         logger.info(
                             "Filtre date (year=%s month=%s months=%s plage=%s..%s): %s -> %s commandes",
-                            year, month, months, date_start, date_end, len(order_triples), len(filtered)
+                            year,
+                            month,
+                            months,
+                            date_start,
+                            date_end,
+                            len(order_triples),
+                            len(filtered),
                         )
 
                     to_process = min(len(filtered), max_invoices - count)
@@ -1565,7 +1850,9 @@ class AmazonInvoiceDownloader:
                         order, oid, inv_date = filtered[j]
                         if on_progress:
                             try:
-                                await on_progress(count, -1, f"Téléchargement commande {count + 1}…")
+                                await on_progress(
+                                    count, -1, f"Téléchargement commande {count + 1}…"
+                                )
                             except Exception:
                                 pass
                         try:
@@ -1581,7 +1868,11 @@ class AmazonInvoiceDownloader:
                                 count += 1
                                 if on_progress:
                                     try:
-                                        await on_progress(count, -1, f"{count} facture(s) téléchargée(s)")
+                                        await on_progress(
+                                            count,
+                                            -1,
+                                            f"{count} facture(s) téléchargée(s)",
+                                        )
                                     except Exception:
                                         pass
                             global_order_index += 1
@@ -1596,18 +1887,26 @@ class AmazonInvoiceDownloader:
                         break
 
                     if not self._has_next_orders_page():
-                        logger.info("Pas de page suivante pour la période %s", period_option)
+                        logger.info(
+                            "Pas de page suivante pour la période %s", period_option
+                        )
                         break
                     if not self._go_to_next_orders_page():
                         logger.warning("Impossible d'aller à la page suivante")
                         break
 
                     page_num += 1
-                    logger.info("Récupération des commandes - période %s, page %s...", period_option, page_num)
+                    logger.info(
+                        "Récupération des commandes - période %s, page %s...",
+                        period_option,
+                        page_num,
+                    )
                     orders = None
                     for selector in order_selectors:
                         try:
-                            orders = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                            orders = self.driver.find_elements(
+                                By.CSS_SELECTOR, selector
+                            )
                             if orders and len(orders) > 0:
                                 break
                         except Exception:
@@ -1623,7 +1922,7 @@ class AmazonInvoiceDownloader:
         except Exception as e:
             logger.error("Erreur lors du téléchargement des factures: %s", e)
             raise
-    
+
     async def close(self) -> None:
         """Ferme le navigateur (sauf si connexion continue ou mode manuel)."""
         if self.driver:
@@ -1637,4 +1936,3 @@ class AmazonInvoiceDownloader:
             self.driver.quit()
             self.driver = None
             logger.info("Navigateur fermé")
-

@@ -1,6 +1,7 @@
 """
 Point d'entrée principal de l'API FastAPI (Invoice Downloader — multi-fournisseurs).
 """
+
 import asyncio
 import json
 import logging
@@ -12,10 +13,11 @@ from typing import Any, AsyncIterator, Optional
 # Timeout max pour un téléchargement (évite que la requête reste bloquée indéfiniment)
 DOWNLOAD_TIMEOUT_SECONDS = 600  # 10 minutes
 
+from logging.handlers import RotatingFileHandler
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from logging.handlers import RotatingFileHandler
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.models.schemas import (
@@ -23,16 +25,16 @@ from backend.models.schemas import (
     DownloadResponse,
     OTPRequest,
     OTPResponse,
-    StatusResponse,
     ProviderInfo,
     ProvidersResponse,
+    StatusResponse,
 )
-from backend.providers import PROVIDERS, PROVIDER_LABELS
+from backend.providers import PROVIDER_LABELS, PROVIDERS
 from backend.providers.amazon import AmazonProvider
-from backend.providers.freebox import FreeboxProvider
-from backend.providers.free_mobile import FreeMobileProvider
-from backend.providers.fnac import FnacProvider
 from backend.providers.bouygues import BouyguesProvider
+from backend.providers.fnac import FnacProvider
+from backend.providers.free_mobile import FreeMobileProvider
+from backend.providers.freebox import FreeboxProvider
 from backend.providers.orange import OrangeProvider
 
 # Racine du projet (où se trouve .env), quel que soit le répertoire de travail au démarrage
@@ -44,6 +46,7 @@ _FRONTEND_URL = "http://localhost:3000"  # Frontend React (npm start)
 def _open_chrome(url: str) -> None:
     """Ouvre Chrome sur l'URL donnée (Windows). Fallback sur le navigateur par défaut."""
     import subprocess
+
     chrome_paths = [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -57,6 +60,7 @@ def _open_chrome(url: str) -> None:
             except Exception as e:
                 logging.getLogger(__name__).warning("Ouverture Chrome: %s", e)
     import webbrowser
+
     webbrowser.open(url)
 
 
@@ -67,16 +71,21 @@ def _open_chrome_when_ready(url: str, max_wait: int = 60) -> None:
 
     def _poll_and_open() -> None:
         import time
+
         deadline = time.time() + max_wait
         while time.time() < deadline:
             try:
                 urllib.request.urlopen(url, timeout=2)
-                logging.getLogger(__name__).info("Frontend prêt, ouverture Chrome sur %s", url)
+                logging.getLogger(__name__).info(
+                    "Frontend prêt, ouverture Chrome sur %s", url
+                )
                 _open_chrome(url)
                 return
             except Exception:
                 time.sleep(1)
-        logging.getLogger(__name__).warning("Frontend non disponible après %ds, ouverture quand même", max_wait)
+        logging.getLogger(__name__).warning(
+            "Frontend non disponible après %ds, ouverture quand même", max_wait
+        )
         _open_chrome(url)
 
     threading.Thread(target=_poll_and_open, daemon=True).start()
@@ -84,19 +93,30 @@ def _open_chrome_when_ready(url: str, max_wait: int = 60) -> None:
 
 class Settings(BaseSettings):
     """Configuration de l'application."""
+
     amazon_email: str
     amazon_password: str
     download_path: str = "./factures"
     max_invoices: int = 100
     selenium_headless: bool = False
     selenium_timeout: int = 30
-    selenium_manual_mode: bool = False  # Mode manuel : laisse le navigateur ouvert pour saisie manuelle
+    selenium_manual_mode: bool = (
+        False  # Mode manuel : laisse le navigateur ouvert pour saisie manuelle
+    )
     selenium_browser: str = "chrome"  # "chrome" ou "firefox"
-    firefox_profile_path: Optional[str] = None  # Chemin vers le profil Firefox existant (session persistante)
-    selenium_chrome_profile_dir: Optional[str] = None  # Répertoire de profil Chrome (session persistante, ex: ./browser_profile)
-    selenium_keep_browser_open: bool = False  # Connexion continue : ne pas fermer le navigateur à l'arrêt de l'app
+    firefox_profile_path: Optional[str] = (
+        None  # Chemin vers le profil Firefox existant (session persistante)
+    )
+    selenium_chrome_profile_dir: Optional[str] = (
+        None  # Répertoire de profil Chrome (session persistante, ex: ./browser_profile)
+    )
+    selenium_keep_browser_open: bool = (
+        False  # Connexion continue : ne pas fermer le navigateur à l'arrêt de l'app
+    )
     # Freebox (optionnel)
-    freebox_login: Optional[str] = None  # Identifiant Freebox (email @free.fr ou login Freebox)
+    freebox_login: Optional[str] = (
+        None  # Identifiant Freebox (email @free.fr ou login Freebox)
+    )
     freebox_password: Optional[str] = None
     # Free Mobile (optionnel) — espace abonné mobile.free.fr
     free_mobile_login: Optional[str] = None  # Identifiant Free Mobile (email ou numéro)
@@ -105,11 +125,15 @@ class Settings(BaseSettings):
     fnac_login: Optional[str] = None  # Email du compte FNAC
     fnac_password: Optional[str] = None
     # Bouygues Telecom (optionnel) — espace client Bouygues Telecom
-    bouygues_login: Optional[str] = None  # Identifiant Bouygues (email ou numéro de ligne)
+    bouygues_login: Optional[str] = (
+        None  # Identifiant Bouygues (email ou numéro de ligne)
+    )
     bouygues_password: Optional[str] = None
     # Orange (optionnel) — espace client orange.fr
     orange_login: Optional[str] = None  # Email du compte Orange (informatif)
-    orange_invoices_url: Optional[str] = None  # URL complète de la page historique des factures
+    orange_invoices_url: Optional[str] = (
+        None  # URL complète de la page historique des factures
+    )
     # Interface
     start_single_window: bool = False  # Ouvrir Chrome sur l'UI au démarrage du backend
 
@@ -117,7 +141,7 @@ class Settings(BaseSettings):
         env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
-        case_sensitive=False
+        case_sensitive=False,
     )
 
     def validate_settings(self) -> None:
@@ -126,26 +150,36 @@ class Settings(BaseSettings):
 
         # Vérifier que l'email est fourni
         if not self.amazon_email or self.amazon_email == "votre_email@example.com":
-            errors.append("AMAZON_EMAIL n'est pas configuré ou utilise la valeur par défaut")
+            errors.append(
+                "AMAZON_EMAIL n'est pas configuré ou utilise la valeur par défaut"
+            )
 
         # Vérifier que le mot de passe est fourni
         if not self.amazon_password or self.amazon_password == "votre_mot_de_passe":
-            errors.append("AMAZON_PASSWORD n'est pas configuré ou utilise la valeur par défaut")
+            errors.append(
+                "AMAZON_PASSWORD n'est pas configuré ou utilise la valeur par défaut"
+            )
 
         # Vérifier que le navigateur est valide
         if self.selenium_browser not in ["chrome", "firefox"]:
-            errors.append(f"SELENIUM_BROWSER doit être 'chrome' ou 'firefox', pas '{self.selenium_browser}'")
+            errors.append(
+                f"SELENIUM_BROWSER doit être 'chrome' ou 'firefox', pas '{self.selenium_browser}'"
+            )
 
         # Vérifier que le timeout est raisonnable
         if self.selenium_timeout < 10 or self.selenium_timeout > 300:
-            errors.append(f"SELENIUM_TIMEOUT doit être entre 10 et 300 secondes, pas {self.selenium_timeout}")
+            errors.append(
+                f"SELENIUM_TIMEOUT doit être entre 10 et 300 secondes, pas {self.selenium_timeout}"
+            )
 
         # Vérifier que max_invoices est positif
         if self.max_invoices <= 0:
             errors.append(f"MAX_INVOICES doit être positif, pas {self.max_invoices}")
 
         if errors:
-            error_msg = "Erreurs de configuration détectées:\n" + "\n".join(f"  - {err}" for err in errors)
+            error_msg = "Erreurs de configuration détectées:\n" + "\n".join(
+                f"  - {err}" for err in errors
+            )
             raise ValueError(error_msg)
 
 
@@ -160,13 +194,11 @@ logging.basicConfig(
     handlers=[
         # Handler pour fichier avec rotation
         RotatingFileHandler(
-            log_dir / "app.log",
-            maxBytes=10*1024*1024,  # 10 MB
-            backupCount=5
+            log_dir / "app.log", maxBytes=10 * 1024 * 1024, backupCount=5  # 10 MB
         ),
         # Handler pour console
-        logging.StreamHandler(sys.stdout)
-    ]
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 logger = logging.getLogger(__name__)
 # Debug activé pour les providers en cours de mise au point
@@ -207,7 +239,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     browser = (settings.selenium_browser or "chrome").strip().lower()
     if browser not in ("chrome", "firefox"):
         browser = "chrome"
-    logger.info("Navigateur Selenium: %s (profil Chrome: %s)", browser, "oui" if settings.selenium_chrome_profile_dir and browser == "chrome" else "non")
+    logger.info(
+        "Navigateur Selenium: %s (profil Chrome: %s)",
+        browser,
+        (
+            "oui"
+            if settings.selenium_chrome_profile_dir and browser == "chrome"
+            else "non"
+        ),
+    )
     if browser == "chrome" and settings.firefox_profile_path:
         logger.debug("FIREFOX_PROFILE_PATH ignoré (SELENIUM_BROWSER=chrome)")
     if browser == "firefox" and settings.selenium_chrome_profile_dir:
@@ -233,8 +273,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
             logger.info("Provider Amazon initialisé avec succès")
         except Exception as e:
-            logger.error(f"Erreur lors de l'initialisation du provider Amazon: {str(e)}")
+            logger.error(
+                f"Erreur lors de l'initialisation du provider Amazon: {str(e)}"
+            )
             import traceback
+
             logger.debug(traceback.format_exc())
 
     # Freebox (si identifiants présents)
@@ -259,7 +302,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             except Exception as e:
                 logger.warning("Provider Freebox non initialisé: %s", e)
         else:
-            logger.debug("Freebox non configuré (FREEBOX_LOGIN / FREEBOX_PASSWORD absents)")
+            logger.debug(
+                "Freebox non configuré (FREEBOX_LOGIN / FREEBOX_PASSWORD absents)"
+            )
 
     # Free Mobile (si identifiants présents)
     if FreeMobileProvider.PROVIDER_ID in PROVIDERS:
@@ -283,7 +328,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             except Exception as e:
                 logger.warning("Provider Free Mobile non initialisé: %s", e)
         else:
-            logger.debug("Free Mobile non configuré (FREE_MOBILE_LOGIN / FREE_MOBILE_PASSWORD absents)")
+            logger.debug(
+                "Free Mobile non configuré (FREE_MOBILE_LOGIN / FREE_MOBILE_PASSWORD absents)"
+            )
 
     # FNAC (si identifiants présents)
     if FnacProvider.PROVIDER_ID in PROVIDERS:
@@ -355,7 +402,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             except Exception as e:
                 logger.warning("Provider Bouygues Telecom non initialisé: %s", e)
         else:
-            logger.debug("Bouygues Telecom non configuré (BOUYGUES_LOGIN / BOUYGUES_PASSWORD absents)")
+            logger.debug(
+                "Bouygues Telecom non configuré (BOUYGUES_LOGIN / BOUYGUES_PASSWORD absents)"
+            )
 
     # Ouvrir l'interface dans Chrome si demandé (attend que le frontend soit prêt)
     if settings.start_single_window:
@@ -378,7 +427,7 @@ app = FastAPI(
     title="Invoice Downloader API",
     description="API pour télécharger automatiquement les factures (Free, Free Mobile, Amazon…)",
     version="2.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Configuration CORS
@@ -400,10 +449,7 @@ def _get_downloader(provider_id: str | None) -> Any:
 @app.get("/", response_model=StatusResponse)
 async def root() -> StatusResponse:
     """Endpoint de statut de l'API."""
-    return StatusResponse(
-        status="ok",
-        message="API Invoice Downloader opérationnelle"
-    )
+    return StatusResponse(status="ok", message="API Invoice Downloader opérationnelle")
 
 
 @app.get("/api/providers", response_model=ProvidersResponse)
@@ -421,19 +467,27 @@ async def list_providers() -> ProvidersResponse:
                 and settings.amazon_password != "votre_mot_de_passe"
             )
         elif pid == "freebox":
-            configured = bool(settings.freebox_login) and bool(settings.freebox_password)
+            configured = bool(settings.freebox_login) and bool(
+                settings.freebox_password
+            )
         elif pid == "free_mobile":
-            configured = bool(settings.free_mobile_login) and bool(settings.free_mobile_password)
+            configured = bool(settings.free_mobile_login) and bool(
+                settings.free_mobile_password
+            )
         elif pid == "fnac":
             configured = bool(settings.fnac_login) and bool(settings.fnac_password)
         elif pid == "bouygues":
-            configured = bool(settings.bouygues_login) and bool(settings.bouygues_password)
+            configured = bool(settings.bouygues_login) and bool(
+                settings.bouygues_password
+            )
         elif pid == "orange":
             configured = bool(settings.orange_invoices_url)
         if implemented:
             configured = configured or pid in downloaders
         providers_list.append(
-            ProviderInfo(id=pid, name=name, configured=configured, implemented=implemented)
+            ProviderInfo(
+                id=pid, name=name, configured=configured, implemented=implemented
+            )
         )
     return ProvidersResponse(providers=providers_list)
 
@@ -459,8 +513,7 @@ async def debug_info() -> dict:
 
 @app.post("/api/download")
 async def download_invoices(
-    request: DownloadRequest,
-    otp_code: Optional[str] = None
+    request: DownloadRequest, otp_code: Optional[str] = None
 ) -> StreamingResponse:
     """
     Télécharge les factures du fournisseur demandé (Amazon, Freebox, etc.).
@@ -472,11 +525,11 @@ async def download_invoices(
         if provider_id in PROVIDER_LABELS and provider_id not in PROVIDERS:
             raise HTTPException(
                 status_code=501,
-                detail=f"Le fournisseur '{provider_id}' n'est pas encore implémenté"
+                detail=f"Le fournisseur '{provider_id}' n'est pas encore implémenté",
             )
         raise HTTPException(
             status_code=503,
-            detail=f"Le fournisseur '{provider_id}' n'est pas configuré ou initialisé"
+            detail=f"Le fournisseur '{provider_id}' n'est pas configuré ou initialisé",
         )
 
     progress_queue: asyncio.Queue[tuple[str, Any, Any, Any]] = asyncio.Queue()
@@ -505,6 +558,7 @@ async def download_invoices(
             await progress_queue.put(("error", "timeout", None, None))
         except Exception as e:
             import traceback
+
             logger.error("Erreur lors du téléchargement: %s", e)
             logger.debug("Traceback: %s", traceback.format_exc())
             await progress_queue.put(("error", str(e), None, None))
@@ -512,7 +566,7 @@ async def download_invoices(
             # Libérer le driver après chaque téléchargement pour éviter les conflits
             # de profil Chrome si plusieurs fournisseurs sont utilisés successivement
             try:
-                if hasattr(downloader, 'driver') and downloader.driver is not None:
+                if hasattr(downloader, "driver") and downloader.driver is not None:
                     await downloader.close()
                     logger.info("Driver %s libéré après téléchargement", provider_id)
             except Exception as e:
@@ -520,7 +574,11 @@ async def download_invoices(
 
     logger.info(
         "Démarrage téléchargement provider=%s max_invoices=%s year=%s month=%s otp=%s",
-        provider_id, request.max_invoices, request.year, request.month, "fourni" if otp_code else "non fourni"
+        provider_id,
+        request.max_invoices,
+        request.year,
+        request.month,
+        "fourni" if otp_code else "non fourni",
     )
     task = asyncio.create_task(run_download())
 
@@ -530,7 +588,9 @@ async def download_invoices(
             kind = item[0]
             if kind == "progress":
                 _, current, total, message = item
-                payload = json.dumps({"current": current, "total": total, "message": message or ""})
+                payload = json.dumps(
+                    {"current": current, "total": total, "message": message or ""}
+                )
                 yield f"event: progress\ndata: {payload}\n\n"
             elif kind == "done":
                 _, result, _, _ = item
@@ -544,8 +604,12 @@ async def download_invoices(
                 break
             elif kind == "error":
                 _, err_msg, _, _ = item
-                is_2fa = "Code 2FA requis" in (err_msg or "") or (downloader.is_2fa_required() if downloader else False)
-                payload = json.dumps({"detail": err_msg or "Erreur", "requires_otp": is_2fa})
+                is_2fa = "Code 2FA requis" in (err_msg or "") or (
+                    downloader.is_2fa_required() if downloader else False
+                )
+                payload = json.dumps(
+                    {"detail": err_msg or "Erreur", "requires_otp": is_2fa}
+                )
                 yield f"event: error\ndata: {payload}\n\n"
                 break
         await task  # consommer la tâche pour éviter warning
@@ -553,7 +617,11 @@ async def download_invoices(
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -563,24 +631,20 @@ async def get_status() -> StatusResponse:
     downloader = _get_downloader("amazon")
     if not downloader:
         return StatusResponse(
-            status="error",
-            message="Le téléchargeur n'est pas initialisé"
+            status="error", message="Le téléchargeur n'est pas initialisé"
         )
     try:
         if downloader.is_2fa_required():
             return StatusResponse(
                 status="otp_required",
-                message="Code 2FA requis - veuillez fournir le code OTP"
+                message="Code 2FA requis - veuillez fournir le code OTP",
             )
-        return StatusResponse(
-            status="ready",
-            message="Le téléchargeur est prêt"
-        )
+        return StatusResponse(status="ready", message="Le téléchargeur est prêt")
     except Exception as e:
         logger.error("Erreur lors de la vérification du statut: %s", e)
         return StatusResponse(
             status="error",
-            message=f"Erreur lors de la vérification du statut: {str(e)}"
+            message=f"Erreur lors de la vérification du statut: {str(e)}",
         )
 
 
@@ -592,33 +656,34 @@ async def submit_otp(request: OTPRequest) -> OTPResponse:
     downloader = _get_downloader("amazon")
     if not downloader:
         raise HTTPException(
-            status_code=503,
-            detail="Le téléchargeur n'est pas initialisé"
+            status_code=503, detail="Le téléchargeur n'est pas initialisé"
         )
     try:
         logger.info("Soumission du code OTP...")
         success = await downloader.submit_otp(request.otp_code)
-        
+
         if success:
             # Vérifier si la connexion est maintenant réussie
             still_requires = downloader.is_2fa_required()
             return OTPResponse(
                 success=True,
-                message="Code OTP accepté" if not still_requires else "Code OTP accepté, mais 2FA toujours requis",
-                requires_otp=still_requires
+                message=(
+                    "Code OTP accepté"
+                    if not still_requires
+                    else "Code OTP accepté, mais 2FA toujours requis"
+                ),
+                requires_otp=still_requires,
             )
         else:
             return OTPResponse(
-                success=False,
-                message="Code OTP incorrect ou expiré",
-                requires_otp=True
+                success=False, message="Code OTP incorrect ou expiré", requires_otp=True
             )
-    
+
     except Exception as e:
         logger.error(f"Erreur lors de la soumission du code OTP: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Erreur lors de la soumission du code OTP: {str(e)}"
+            detail=f"Erreur lors de la soumission du code OTP: {str(e)}",
         )
 
 
@@ -628,20 +693,17 @@ async def check_2fa() -> OTPResponse:
     downloader = _get_downloader("amazon")
     if not downloader:
         raise HTTPException(
-            status_code=503,
-            detail="Le téléchargeur n'est pas initialisé"
+            status_code=503, detail="Le téléchargeur n'est pas initialisé"
         )
     requires_otp = downloader.is_2fa_required()
     return OTPResponse(
         success=not requires_otp,
         message="Code 2FA requis" if requires_otp else "Aucun code 2FA requis",
-        requires_otp=requires_otp
+        requires_otp=requires_otp,
     )
-
-
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
 
+    uvicorn.run(app, host="0.0.0.0", port=8001)

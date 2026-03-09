@@ -5,6 +5,7 @@ Chaque provider (Amazon, FNAC, Free, etc.) expose les mêmes entrées : login,
 navigation vers les factures, téléchargement. On utilise un Protocol pour
 permettre des implémentations par composition (wrapper) sans héritage forcé.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ ProgressCallback = Optional[Callable[[int, int, str], Awaitable[None]]]
 @dataclass
 class OrderInfo:
     """Information minimale sur une commande/facture (pour list_orders_or_invoices)."""
+
     order_id: str
     invoice_date: Optional[date] = None
     invoice_url: Optional[str] = None

@@ -2,11 +2,12 @@
 Provider Amazon : enveloppe le service existant AmazonInvoiceDownloader
 pour respecter l'interface InvoiceProviderProtocol (V2).
 """
+
 from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union, Awaitable
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 from backend.providers.base import OrderInfo
 from backend.services.amazon_downloader import AmazonInvoiceDownloader
@@ -73,7 +74,8 @@ class AmazonProvider:
         return await self._downloader.download_invoice(
             order_or_id,
             order_index=order_index,
-            order_id=order_id or (str(order_or_id) if isinstance(order_or_id, str) else ""),
+            order_id=order_id
+            or (str(order_or_id) if isinstance(order_or_id, str) else ""),
             invoice_date=invoice_date,
             force_redownload=force_redownload,
         )

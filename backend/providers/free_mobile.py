@@ -3,8 +3,10 @@ Provider Free Mobile (Espace abonné mobile — mobile.free.fr).
 Téléchargement des factures depuis l'espace client Free Mobile.
 Connexion : https://mobile.free.fr/account/v2/login
 """
+
 from __future__ import annotations
 
+import logging
 import re
 import time
 from datetime import date as date_type
@@ -12,22 +14,20 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.firefox import GeckoDriverManager
 
 from backend.providers.base import OrderInfo
 from backend.services.invoice_registry import InvoiceRegistry
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +35,21 @@ PROVIDER_FREE_MOBILE = "free_mobile"
 
 # Mois FR pour le parsing des titres de facture
 _MOIS_FR = {
-    "janvier": 1, "février": 2, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5,
-    "juin": 6, "juillet": 7, "août": 8, "aout": 8, "septembre": 9,
-    "octobre": 10, "novembre": 11, "décembre": 12, "decembre": 12,
+    "janvier": 1,
+    "février": 2,
+    "fevrier": 2,
+    "mars": 3,
+    "avril": 4,
+    "mai": 5,
+    "juin": 6,
+    "juillet": 7,
+    "août": 8,
+    "aout": 8,
+    "septembre": 9,
+    "octobre": 10,
+    "novembre": 11,
+    "décembre": 12,
+    "decembre": 12,
 }
 
 FREE_MOBILE_BASE_URL = "https://mobile.free.fr"
@@ -106,7 +118,9 @@ class FreeMobileProvider:
         }
         opts.add_experimental_option("prefs", prefs)
         if self.chrome_user_data_dir:
-            opts.add_argument(f"--user-data-dir={Path(self.chrome_user_data_dir).resolve()}")
+            opts.add_argument(
+                f"--user-data-dir={Path(self.chrome_user_data_dir).resolve()}"
+            )
         driver_path = ChromeDriverManager().install()
         service = ChromeService(driver_path)
         return webdriver.Chrome(service=service, options=opts)
@@ -120,8 +134,12 @@ class FreeMobileProvider:
         else:
             profile = FirefoxProfile()
             profile.set_preference("browser.download.folderList", 2)
-            profile.set_preference("browser.download.dir", str(self.download_path.absolute()))
-            profile.set_preference("browser.helperApps.neverAsk.saveToDisk", "application/pdf")
+            profile.set_preference(
+                "browser.download.dir", str(self.download_path.absolute())
+            )
+            profile.set_preference(
+                "browser.helperApps.neverAsk.saveToDisk", "application/pdf"
+            )
             opts.profile = profile
         driver_path = GeckoDriverManager().install()
         return webdriver.Firefox(service=FirefoxService(driver_path), options=opts)
@@ -135,7 +153,9 @@ class FreeMobileProvider:
         try:
             body = self.driver.page_source.lower()
             if "se connecter" in body or "connexion" in body:
-                pwd_fields = self.driver.find_elements(By.CSS_SELECTOR, "input[type='password']")
+                pwd_fields = self.driver.find_elements(
+                    By.CSS_SELECTOR, "input[type='password']"
+                )
                 if pwd_fields and any(f.is_displayed() for f in pwd_fields):
                     return False
         except Exception:
@@ -196,12 +216,17 @@ class FreeMobileProvider:
                         continue
             if not pass_input:
                 try:
-                    pass_input = self.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+                    pass_input = self.driver.find_element(
+                        By.CSS_SELECTOR, "input[type='password']"
+                    )
                 except NoSuchElementException:
                     pass
 
             if not login_input or not pass_input:
-                logger.error("Free Mobile: champs identifiant / mot de passe non trouvés sur %s", FREE_MOBILE_LOGIN_URL)
+                logger.error(
+                    "Free Mobile: champs identifiant / mot de passe non trouvés sur %s",
+                    FREE_MOBILE_LOGIN_URL,
+                )
                 return False
 
             login_input.clear()
@@ -232,7 +257,9 @@ class FreeMobileProvider:
                     continue
             if not submit:
                 try:
-                    submit = self.driver.find_element(By.CSS_SELECTOR, "input[type='submit'], button[type='submit']")
+                    submit = self.driver.find_element(
+                        By.CSS_SELECTOR, "input[type='submit'], button[type='submit']"
+                    )
                 except NoSuchElementException:
                     pass
             if submit:
@@ -243,13 +270,21 @@ class FreeMobileProvider:
             time.sleep(4)
 
             if not self._is_logged_in():
-                logger.warning("Free Mobile: connexion peut avoir échoué (vérifier identifiants)")
+                logger.warning(
+                    "Free Mobile: connexion peut avoir échoué (vérifier identifiants)"
+                )
                 return False
             logger.info("Free Mobile: connexion réussie")
             return True
         except Exception as e:
             err_msg = str(e).lower()
-            if "dns" in err_msg or "neterror" in err_msg or "could not reach" in err_msg or "offline" in err_msg or "impossible de se connecter" in err_msg:
+            if (
+                "dns" in err_msg
+                or "neterror" in err_msg
+                or "could not reach" in err_msg
+                or "offline" in err_msg
+                or "impossible de se connecter" in err_msg
+            ):
                 logger.error(
                     "Free Mobile: problème réseau ou DNS (impossible de joindre mobile.free.fr). "
                     "Vérifiez votre connexion internet, VPN, pare-feu, ou réessayez plus tard."
@@ -283,13 +318,26 @@ class FreeMobileProvider:
                             time.sleep(2)
                             # Attendre que des liens de lignes (06/07) apparaissent en dessous
                             WebDriverWait(self.driver, 10).until(
-                                lambda d: len([
-                                    e for e in d.find_elements(By.XPATH, "//*[contains(., '06') or contains(., '07')]")
-                                    if e.is_displayed() and 10 < len((e.text or "").strip()) < 80
-                                    and re.search(r"0[1-9][\s]?\d{2}[\s]?\d{2}[\s]?\d{2}[\s]?\d{2}", (e.text or ""))
-                                ]) >= 2
+                                lambda d: len(
+                                    [
+                                        e
+                                        for e in d.find_elements(
+                                            By.XPATH,
+                                            "//*[contains(., '06') or contains(., '07')]",
+                                        )
+                                        if e.is_displayed()
+                                        and 10 < len((e.text or "").strip()) < 80
+                                        and re.search(
+                                            r"0[1-9][\s]?\d{2}[\s]?\d{2}[\s]?\d{2}[\s]?\d{2}",
+                                            (e.text or ""),
+                                        )
+                                    ]
+                                )
+                                >= 2
                             )
-                            logger.info("Free Mobile: section MES LIGNES dépliée, lignes visibles")
+                            logger.info(
+                                "Free Mobile: section MES LIGNES dépliée, lignes visibles"
+                            )
                             return True
                         except TimeoutException:
                             pass
@@ -298,7 +346,9 @@ class FreeMobileProvider:
                 except Exception:
                     continue
             # Fallback : un seul clic sur un élément contenant MES LIGNES puis attente
-            for el in self.driver.find_elements(By.XPATH, "//*[contains(., 'MES LIGNES')]"):
+            for el in self.driver.find_elements(
+                By.XPATH, "//*[contains(., 'MES LIGNES')]"
+            ):
                 if not el.is_displayed():
                     continue
                 text = (el.text or "").strip()
@@ -355,8 +405,12 @@ class FreeMobileProvider:
                         text = (el.text or "").strip()
                         if not phone_re.search(text) or len(text) >= 80:
                             continue
-                        href = (el.get_attribute("href") or "")
-                        if href.startswith("http") and "mobile.free.fr" not in href and "free.fr" not in href:
+                        href = el.get_attribute("href") or ""
+                        if (
+                            href.startswith("http")
+                            and "mobile.free.fr" not in href
+                            and "free.fr" not in href
+                        ):
                             continue
                         match = phone_re.search(text)
                         phone = re.sub(r"\D", "", match.group(0))[:10] if match else ""
@@ -367,14 +421,19 @@ class FreeMobileProvider:
                         continue
             # 3) Fallback : liens avec account/ligne dans l'URL
             if not entries:
-                for el in self.driver.find_elements(By.CSS_SELECTOR, "a[href*='account'], a[href*='ligne'], a[href*='line']"):
+                for el in self.driver.find_elements(
+                    By.CSS_SELECTOR,
+                    "a[href*='account'], a[href*='ligne'], a[href*='line']",
+                ):
                     try:
                         if not el.is_displayed():
                             continue
                         text = (el.text or "").strip()
                         if phone_re.search(text):
                             match = phone_re.search(text)
-                            phone = re.sub(r"\D", "", match.group(0))[:10] if match else ""
+                            phone = (
+                                re.sub(r"\D", "", match.group(0))[:10] if match else ""
+                            )
                             if not phone or phone in seen_phones:
                                 continue
                             seen_phones.add(phone)
@@ -382,20 +441,29 @@ class FreeMobileProvider:
                     except Exception:
                         continue
             if not entries:
-                for el in self.driver.find_elements(By.XPATH, "//a[contains(@href, 'account') or contains(@href, 'line')]"):
+                for el in self.driver.find_elements(
+                    By.XPATH,
+                    "//a[contains(@href, 'account') or contains(@href, 'line')]",
+                ):
                     try:
                         if not el.is_displayed():
                             continue
                         text = (el.text or "").strip()
                         if phone_re.search(text) or "06 " in text or "07 " in text:
                             match = phone_re.search(text)
-                            phone = re.sub(r"\D", "", match.group(0))[:10] if match else str(hash(el))[:10]
+                            phone = (
+                                re.sub(r"\D", "", match.group(0))[:10]
+                                if match
+                                else str(hash(el))[:10]
+                            )
                             if phone not in seen_phones:
                                 seen_phones.add(phone)
                                 entries.append(el)
                     except Exception:
                         continue
-            logger.info("Free Mobile: %s ligne(s) trouvée(s) (MES LIGNES)", len(entries))
+            logger.info(
+                "Free Mobile: %s ligne(s) trouvée(s) (MES LIGNES)", len(entries)
+            )
         except Exception as e:
             logger.warning("Free Mobile get line entries: %s", e)
         return entries
@@ -419,7 +487,9 @@ class FreeMobileProvider:
             return
         try:
             try:
-                link = self.driver.find_element(By.PARTIAL_LINK_TEXT, "Conso et factures")
+                link = self.driver.find_element(
+                    By.PARTIAL_LINK_TEXT, "Conso et factures"
+                )
                 if link.is_displayed():
                     link.click()
                     time.sleep(2)
@@ -449,7 +519,9 @@ class FreeMobileProvider:
                         if not el.is_displayed():
                             continue
                         t = (el.text or "").strip()
-                        if t == "Mes factures" or (t.startswith("Mes factures") and "Ma consommation" not in t):
+                        if t == "Mes factures" or (
+                            t.startswith("Mes factures") and "Ma consommation" not in t
+                        ):
                             try:
                                 el.click()
                                 clicked = True
@@ -462,8 +534,12 @@ class FreeMobileProvider:
                     continue
             if not clicked:
                 try:
-                    link = self.driver.find_element(By.PARTIAL_LINK_TEXT, "Mes factures")
-                    if link.is_displayed() and "Ma consommation" not in (link.text or ""):
+                    link = self.driver.find_element(
+                        By.PARTIAL_LINK_TEXT, "Mes factures"
+                    )
+                    if link.is_displayed() and "Ma consommation" not in (
+                        link.text or ""
+                    ):
                         link.click()
                         clicked = True
                 except NoSuchElementException:
@@ -475,11 +551,16 @@ class FreeMobileProvider:
             try:
                 WebDriverWait(self.driver, 15).until(
                     EC.presence_of_element_located(
-                        (By.XPATH, "//a[contains(@href, 'pdf') or contains(@href, 'facture') or contains(@href, 'document')]")
+                        (
+                            By.XPATH,
+                            "//a[contains(@href, 'pdf') or contains(@href, 'facture') or contains(@href, 'document')]",
+                        )
                     )
                 )
             except TimeoutException:
-                logger.warning("Free Mobile: timeout en attendant la liste des factures après clic onglet")
+                logger.warning(
+                    "Free Mobile: timeout en attendant la liste des factures après clic onglet"
+                )
             time.sleep(2)
             logger.info("Free Mobile: onglet Mes factures ouvert")
             return True
@@ -494,11 +575,16 @@ class FreeMobileProvider:
             # Sur la page compte : toujours ouvrir l’onglet « Mes factures » avant de lister
             if "/account" in self.driver.current_url:
                 if not self._click_mes_factures_tab():
-                    logger.warning("Free Mobile: impossible d'ouvrir l'onglet Mes factures")
+                    logger.warning(
+                        "Free Mobile: impossible d'ouvrir l'onglet Mes factures"
+                    )
                 time.sleep(2)
                 already = self.list_orders_or_invoices()
                 if already:
-                    logger.info("Free Mobile: %s facture(s) sur la page Mes factures", len(already))
+                    logger.info(
+                        "Free Mobile: %s facture(s) sur la page Mes factures",
+                        len(already),
+                    )
                     return True
         for path in FREE_MOBILE_FACTURATION_PATHS:
             url = FREE_MOBILE_BASE_URL.rstrip("/") + path
@@ -530,6 +616,7 @@ class FreeMobileProvider:
         ouvre chaque ligne, affiche « Mes factures », et agrège tous les liens de factures.
         """
         from urllib.parse import urljoin
+
         if not self.driver or not self._is_logged_in():
             return []
         # S’assurer d’être sur la page compte
@@ -539,7 +626,12 @@ class FreeMobileProvider:
         # Attendre que la sidebar soit rendue (bloc MES LIGNES ou lien avec numéro)
         try:
             WebDriverWait(self.driver, 12).until(
-                EC.presence_of_element_located((By.XPATH, "//*[contains(., 'MES LIGNES') or contains(., 'LIGNE PRINCIPALE')]"))
+                EC.presence_of_element_located(
+                    (
+                        By.XPATH,
+                        "//*[contains(., 'MES LIGNES') or contains(., 'LIGNE PRINCIPALE')]",
+                    )
+                )
             )
         except TimeoutException:
             pass
@@ -547,9 +639,15 @@ class FreeMobileProvider:
         time.sleep(2)
         line_entries = self._get_line_entries()
         if not line_entries:
-            logger.warning("Free Mobile: 0 ligne trouvée dans MES LIGNES (page: %s)", self.driver.current_url[:80])
+            logger.warning(
+                "Free Mobile: 0 ligne trouvée dans MES LIGNES (page: %s)",
+                self.driver.current_url[:80],
+            )
         else:
-            logger.info("Free Mobile: parcours de %s ligne(s) rattachée(s) (MES LIGNES)", len(line_entries))
+            logger.info(
+                "Free Mobile: parcours de %s ligne(s) rattachée(s) (MES LIGNES)",
+                len(line_entries),
+            )
         seen_hrefs: set[str] = set()
         all_orders: List[OrderInfo] = []
         num_lines = len(line_entries)
@@ -560,7 +658,11 @@ class FreeMobileProvider:
                 time.sleep(1)
                 current_entries = self._get_line_entries()
                 if idx >= len(current_entries):
-                    logger.warning("Free Mobile: entrée ligne %s introuvable (total %s)", idx, len(current_entries))
+                    logger.warning(
+                        "Free Mobile: entrée ligne %s introuvable (total %s)",
+                        idx,
+                        len(current_entries),
+                    )
                     continue
                 line_el = current_entries[idx]
                 line_el.click()
@@ -579,7 +681,14 @@ class FreeMobileProvider:
                         continue
                     seen_hrefs.add(norm)
                     order_id = f"free_mobile_inv_{idx}_{hash(norm) % 100000}"
-                    all_orders.append(OrderInfo(order_id=order_id, invoice_url=href, invoice_date=o.invoice_date, raw_element=o.raw_element))
+                    all_orders.append(
+                        OrderInfo(
+                            order_id=order_id,
+                            invoice_url=href,
+                            invoice_date=o.invoice_date,
+                            raw_element=o.raw_element,
+                        )
+                    )
                 self.driver.back()
                 time.sleep(2)
             except Exception as e:
@@ -642,32 +751,48 @@ class FreeMobileProvider:
                 year = int(match.group(1))
                 if 2000 <= year <= 2100:
                     month_match = re.search(r"[?&]month=(\d{1,2})", href, re.I)
-                    month = int(month_match.group(1)) if month_match and 1 <= int(month_match.group(1)) <= 12 else 1
+                    month = (
+                        int(month_match.group(1))
+                        if month_match and 1 <= int(month_match.group(1)) <= 12
+                        else 1
+                    )
                     return date_type(year, month, 1)
             except (ValueError, TypeError):
                 pass
         return None
 
-    def _invoice_date_from_title_and_url(self, title: str, href: str) -> Optional[date_type]:
+    def _invoice_date_from_title_and_url(
+        self, title: str, href: str
+    ) -> Optional[date_type]:
         """Retourne la date de facture depuis le titre du lien, sinon depuis l'URL."""
-        return self._parse_invoice_date_from_title(title or "") or self._parse_invoice_date_from_url(href or "")
+        return self._parse_invoice_date_from_title(
+            title or ""
+        ) or self._parse_invoice_date_from_url(href or "")
 
     def _normalize_invoice_url(self, url: str) -> str:
         """URL canonique pour déduplication (même facture avec paramètres différents)."""
         from urllib.parse import urlparse, urlunparse
+
         if not url:
             return ""
         p = urlparse(url)
         path = (p.path or "").rstrip("/")
         # Pour les PDF/factures, considérer même path = même document
-        if ".pdf" in path.lower() or "facture" in path.lower() or "document" in path.lower():
+        if (
+            ".pdf" in path.lower()
+            or "facture" in path.lower()
+            or "document" in path.lower()
+        ):
             return (p.scheme or "https") + "://" + (p.netloc or "") + path
         return url.split("#")[0].split("?")[0]
 
     def _get_date_from_context(self, el: Any) -> Optional[date_type]:
         """Extrait une date du texte du lien et de son parent (ex. ligne de tableau)."""
         try:
-            text_parts = [(el.text or "").strip(), (el.get_attribute("title") or "").strip()]
+            text_parts = [
+                (el.text or "").strip(),
+                (el.get_attribute("title") or "").strip(),
+            ]
             parent = el
             for _ in range(3):
                 try:
@@ -677,13 +802,15 @@ class FreeMobileProvider:
                 except Exception:
                     break
             combined = " ".join(text_parts)
-            return self._parse_invoice_date_from_title(combined) or self._parse_invoice_date_from_url(
-                (el.get_attribute("href") or "")
-            )
+            return self._parse_invoice_date_from_title(
+                combined
+            ) or self._parse_invoice_date_from_url((el.get_attribute("href") or ""))
         except Exception:
             return None
 
-    def _is_invoice_download_link(self, el: Any, href: str, text: str, title: str) -> bool:
+    def _is_invoice_download_link(
+        self, el: Any, href: str, text: str, title: str
+    ) -> bool:
         """
         Vrai pour un lien de téléchargement de facture (pas récapitulatif, pas tarifs).
         Le libellé doit contenir "facture" ou "invoice".
@@ -700,7 +827,12 @@ class FreeMobileProvider:
         # Exclure tarifs (documents de grille tarifaire)
         if "tarif" in label or "tarif" in href_lower:
             return False
-        if not href or href == "#" or "logout" in href_lower or "deconnexion" in href_lower:
+        if (
+            not href
+            or href == "#"
+            or "logout" in href_lower
+            or "deconnexion" in href_lower
+        ):
             return False
         if text.strip() in ("mes factures", "ma consommation", "conso et factures"):
             return False
@@ -708,7 +840,13 @@ class FreeMobileProvider:
         if "facture" not in label and "invoice" not in label:
             return False
         # L'URL doit pointer vers un document (PDF, facture, etc.)
-        href_ok = ".pdf" in href_lower or "facture" in href_lower or "invoice" in href_lower or "document" in href_lower or "download" in href_lower
+        href_ok = (
+            ".pdf" in href_lower
+            or "facture" in href_lower
+            or "invoice" in href_lower
+            or "document" in href_lower
+            or "download" in href_lower
+        )
         if not href_ok:
             return False
         return True
@@ -716,6 +854,7 @@ class FreeMobileProvider:
     def list_orders_or_invoices(self) -> List[OrderInfo]:
         """Liste uniquement les liens de téléchargement de factures (onglet Mes factures)."""
         from urllib.parse import urljoin
+
         out: List[OrderInfo] = []
         if not self.driver:
             return out
@@ -725,7 +864,14 @@ class FreeMobileProvider:
             # Chercher d'abord dans le contenu principal (tabpanel ou main) pour éviter le menu
             root_candidates = []
             try:
-                for sel in ["[role='tabpanel']", "main", "[role='main']", ".main-content", "#content", ".content"]:
+                for sel in [
+                    "[role='tabpanel']",
+                    "main",
+                    "[role='main']",
+                    ".main-content",
+                    "#content",
+                    ".content",
+                ]:
                     els = self.driver.find_elements(By.CSS_SELECTOR, sel)
                     for el in els:
                         if el.is_displayed():
@@ -742,19 +888,34 @@ class FreeMobileProvider:
                     title = (a.get_attribute("title") or "").strip()
                     if not self._is_invoice_download_link(a, href, text, title):
                         continue
-                    full_href = urljoin(base_url, href) if not href.startswith("http") else href
+                    full_href = (
+                        urljoin(base_url, href) if not href.startswith("http") else href
+                    )
                     norm = self._normalize_invoice_url(full_href)
                     if not norm or norm in seen_hrefs:
                         continue
                     seen_hrefs.add(norm)
-                    inv_date = self._invoice_date_from_title_and_url(title or text, full_href)
+                    inv_date = self._invoice_date_from_title_and_url(
+                        title or text, full_href
+                    )
                     if inv_date is None:
                         inv_date = self._get_date_from_context(a)
                     order_id = f"free_mobile_inv_{len(out)}_{hash(norm) % 100000}"
-                    out.append(OrderInfo(order_id=order_id, invoice_url=full_href, invoice_date=inv_date, raw_element=a))
+                    out.append(
+                        OrderInfo(
+                            order_id=order_id,
+                            invoice_url=full_href,
+                            invoice_date=inv_date,
+                            raw_element=a,
+                        )
+                    )
                 if out:
                     break
-            logger.info("Free Mobile list_orders: %s lien(s) facture trouvé(s) sur %s", len(out), base_url[:60])
+            logger.info(
+                "Free Mobile list_orders: %s lien(s) facture trouvé(s) sur %s",
+                len(out),
+                base_url[:60],
+            )
         except Exception as e:
             logger.warning("Free Mobile list_orders: %s", e)
         return out
@@ -769,7 +930,10 @@ class FreeMobileProvider:
         date_end_str: Optional[str] = None,
     ) -> List[OrderInfo]:
         from datetime import datetime
-        if not any([year is not None, month is not None, months, date_start_str, date_end_str]):
+
+        if not any(
+            [year is not None, month is not None, months, date_start_str, date_end_str]
+        ):
             return orders
         if date_start_str and date_end_str:
             try:
@@ -777,9 +941,19 @@ class FreeMobileProvider:
                 end_d = datetime.strptime(date_end_str, "%Y-%m-%d").date()
             except ValueError:
                 return orders
-            return [o for o in orders if o.invoice_date and start_d <= o.invoice_date <= end_d]
+            return [
+                o
+                for o in orders
+                if o.invoice_date and start_d <= o.invoice_date <= end_d
+            ]
         if year is not None and months:
-            return [o for o in orders if o.invoice_date and o.invoice_date.year == year and o.invoice_date.month in months]
+            return [
+                o
+                for o in orders
+                if o.invoice_date
+                and o.invoice_date.year == year
+                and o.invoice_date.month in months
+            ]
         out: List[OrderInfo] = []
         for o in orders:
             if not o.invoice_date:
@@ -793,29 +967,39 @@ class FreeMobileProvider:
 
     def _get_browser_session(self) -> Any:
         import requests
+
         session = requests.Session()
         for c in self.driver.get_cookies():
             session.cookies.set(c["name"], c["value"], domain=c.get("domain", ""))
-        session.headers["User-Agent"] = self.driver.execute_script("return navigator.userAgent;")
+        session.headers["User-Agent"] = self.driver.execute_script(
+            "return navigator.userAgent;"
+        )
         return session
 
-    def _download_pdf(self, url: str, order_id: str, invoice_date: Optional[date_type] = None) -> Optional[str]:
+    def _download_pdf(
+        self, url: str, order_id: str, invoice_date: Optional[date_type] = None
+    ) -> Optional[str]:
         try:
             session = self._get_browser_session()
             r = session.get(url, timeout=30, allow_redirects=True)
             if r.status_code != 200:
                 logger.warning(
                     "Free Mobile download: URL retourne status %s (attendu 200) → %s",
-                    r.status_code, url[:80],
+                    r.status_code,
+                    url[:80],
                 )
                 return None
             ct = r.headers.get("content-type", "").lower()
             is_pdf = "pdf" in ct or (len(r.content) >= 4 and r.content[:4] == b"%PDF")
             if not is_pdf:
-                preview = repr(r.content[:50]) if len(r.content) >= 50 else repr(r.content)
+                preview = (
+                    repr(r.content[:50]) if len(r.content) >= 50 else repr(r.content)
+                )
                 logger.warning(
                     "Free Mobile download: contenu non-PDF (content-type=%s, début=%s) → %s",
-                    ct or "(vide)", preview, url[:80],
+                    ct or "(vide)",
+                    preview,
+                    url[:80],
                 )
                 return None
             if invoice_date:
@@ -838,8 +1022,14 @@ class FreeMobileProvider:
         invoice_date: Optional[date_type] = None,
         force_redownload: bool = False,
     ) -> Optional[str]:
-        oid = order_id or (order_or_id.order_id if isinstance(order_or_id, OrderInfo) else str(order_or_id))
-        if not force_redownload and self.registry.is_downloaded(PROVIDER_FREE_MOBILE, oid):
+        oid = order_id or (
+            order_or_id.order_id
+            if isinstance(order_or_id, OrderInfo)
+            else str(order_or_id)
+        )
+        if not force_redownload and self.registry.is_downloaded(
+            PROVIDER_FREE_MOBILE, oid
+        ):
             logger.debug("Free Mobile: facture déjà enregistrée, ignorée: %s", oid)
             return None
         url = None
@@ -852,7 +1042,12 @@ class FreeMobileProvider:
             return None
         filename = self._download_pdf(url, oid, invoice_date)
         if filename:
-            self.registry.add(PROVIDER_FREE_MOBILE, oid, filename, invoice_date=invoice_date.isoformat() if invoice_date else None)
+            self.registry.add(
+                PROVIDER_FREE_MOBILE,
+                oid,
+                filename,
+                invoice_date=invoice_date.isoformat() if invoice_date else None,
+            )
         return filename
 
     async def download_invoices(
@@ -873,11 +1068,17 @@ class FreeMobileProvider:
         # D’abord tenter de collecter les factures en parcourant chaque ligne rattachée (MES LIGNES)
         orders = self.list_orders_or_invoices_from_all_lines()
         if orders:
-            logger.info("Free Mobile: %s facture(s) collectée(s) via MES LIGNES", len(orders))
+            logger.info(
+                "Free Mobile: %s facture(s) collectée(s) via MES LIGNES", len(orders)
+            )
         if not orders:
-            logger.info("Free Mobile: aucune facture via lignes, essai page compte + onglet Mes factures")
+            logger.info(
+                "Free Mobile: aucune facture via lignes, essai page compte + onglet Mes factures"
+            )
             if not await self.navigate_to_invoices():
-                raise Exception("Impossible d'accéder à la page des factures Free Mobile")
+                raise Exception(
+                    "Impossible d'accéder à la page des factures Free Mobile"
+                )
             orders = self.list_orders_or_invoices()
         if not orders:
             self._save_debug_page("free_mobile_no_links")
@@ -897,17 +1098,23 @@ class FreeMobileProvider:
         if year is not None or month is not None or months or date_start or date_end:
             logger.info(
                 "Free Mobile filtre (year=%s month=%s): %s -> %s facture(s)",
-                year, month, len(orders), len(filtered),
+                year,
+                month,
+                len(orders),
+                len(filtered),
             )
         with_date = sum(1 for o in orders if o.invoice_date)
         if not filtered and orders:
             logger.warning(
                 "Free Mobile: 0 facture après filtre (%s lien(s), %s avec date reconnue)",
-                len(orders), with_date,
+                len(orders),
+                with_date,
             )
             # Si aucune date reconnue, télécharger quand même toutes les factures (sans filtre effectif)
             if with_date == 0:
-                logger.info("Free Mobile: aucune date reconnue sur les titres → téléchargement de toutes les factures.")
+                logger.info(
+                    "Free Mobile: aucune date reconnue sur les titres → téléchargement de toutes les factures."
+                )
                 filtered = orders
 
         # Déduplication finale par URL canonique (éviter doublons)
@@ -919,7 +1126,9 @@ class FreeMobileProvider:
                 seen_norm.add(norm)
                 deduped.append(o)
         if len(deduped) < len(filtered):
-            logger.info("Free Mobile: %s doublon(s) supprimé(s)", len(filtered) - len(deduped))
+            logger.info(
+                "Free Mobile: %s doublon(s) supprimé(s)", len(filtered) - len(deduped)
+            )
         filtered = deduped
 
         total = min(len(filtered), max_invoices)
@@ -930,7 +1139,9 @@ class FreeMobileProvider:
                 break
             if on_progress:
                 try:
-                    cb = on_progress(count, total, f"Téléchargement facture {count + 1}/{total}…")
+                    cb = on_progress(
+                        count, total, f"Téléchargement facture {count + 1}/{total}…"
+                    )
                     if hasattr(cb, "__await__"):
                         await cb  # type: ignore[misc]
                 except Exception:
@@ -947,7 +1158,9 @@ class FreeMobileProvider:
                 count += 1
                 if on_progress:
                     try:
-                        cb = on_progress(count, total, f"{count}/{total} facture(s) téléchargée(s)")
+                        cb = on_progress(
+                            count, total, f"{count}/{total} facture(s) téléchargée(s)"
+                        )
                         if hasattr(cb, "__await__"):
                             await cb  # type: ignore[misc]
                     except Exception:
@@ -970,7 +1183,10 @@ class FreeMobileProvider:
         if not self.driver:
             return False
         try:
-            self.driver.find_element(By.CSS_SELECTOR, "input[name*='otp'], input[name*='code'], input[type='tel'][maxlength='6']")
+            self.driver.find_element(
+                By.CSS_SELECTOR,
+                "input[name*='otp'], input[name*='code'], input[type='tel'][maxlength='6']",
+            )
             return True
         except NoSuchElementException:
             return False
@@ -979,10 +1195,15 @@ class FreeMobileProvider:
         if not self.driver:
             return False
         try:
-            inp = self.driver.find_element(By.CSS_SELECTOR, "input[name*='otp'], input[name*='code'], input[type='tel']")
+            inp = self.driver.find_element(
+                By.CSS_SELECTOR,
+                "input[name*='otp'], input[name*='code'], input[type='tel']",
+            )
             inp.clear()
             inp.send_keys(otp_code)
-            self.driver.find_element(By.CSS_SELECTOR, "input[type='submit'], button[type='submit']").click()
+            self.driver.find_element(
+                By.CSS_SELECTOR, "input[type='submit'], button[type='submit']"
+            ).click()
             time.sleep(4)
             return self._is_logged_in()
         except Exception as e:

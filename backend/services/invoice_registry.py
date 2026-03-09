@@ -2,6 +2,7 @@
 Registre des factures déjà téléchargées (V1).
 Permet de ne télécharger que les factures non encore présentes.
 """
+
 import json
 import logging
 from datetime import datetime
@@ -30,7 +31,9 @@ class InvoiceRegistry:
                 with open(self._file, "r", encoding="utf-8") as f:
                     self._data = json.load(f)
             except (json.JSONDecodeError, OSError) as e:
-                logger.warning("Registre invalide ou illisible, reinitialisation: %s", e)
+                logger.warning(
+                    "Registre invalide ou illisible, reinitialisation: %s", e
+                )
                 self._data = {}
         else:
             self._data = {}
@@ -110,7 +113,9 @@ class InvoiceRegistry:
                     e["invoice_url"] = invoice_url
                 self._save()
                 return
-            if invoice_url and self._normalize_invoice_url(e.get("invoice_url") or "") == self._normalize_invoice_url(invoice_url):
+            if invoice_url and self._normalize_invoice_url(
+                e.get("invoice_url") or ""
+            ) == self._normalize_invoice_url(invoice_url):
                 e["order_id"] = order_id
                 e["file_path"] = file_path
                 e["invoice_date"] = invoice_date
@@ -118,13 +123,15 @@ class InvoiceRegistry:
                 e["invoice_url"] = invoice_url
                 self._save()
                 return
-        entries.append({
-            "order_id": order_id,
-            "file_path": file_path,
-            "invoice_date": invoice_date,
-            "downloaded_at": datetime.utcnow().isoformat() + "Z",
-            **({"invoice_url": invoice_url} if invoice_url is not None else {}),
-        })
+        entries.append(
+            {
+                "order_id": order_id,
+                "file_path": file_path,
+                "invoice_date": invoice_date,
+                "downloaded_at": datetime.utcnow().isoformat() + "Z",
+                **({"invoice_url": invoice_url} if invoice_url is not None else {}),
+            }
+        )
         self._save()
 
     def list_downloaded(self, provider: Optional[str] = None) -> List[Dict[str, Any]]:

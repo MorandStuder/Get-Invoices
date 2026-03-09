@@ -1,8 +1,10 @@
 """
 Tests du provider Freebox (Espace abonné).
 """
+
 import pytest
-from backend.providers.freebox import FreeboxProvider, PROVIDER_FREEBOX
+
+from backend.providers.freebox import PROVIDER_FREEBOX, FreeboxProvider
 
 
 def test_freebox_provider_id() -> None:
