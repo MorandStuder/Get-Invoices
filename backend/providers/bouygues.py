@@ -8,6 +8,7 @@ Mode initial très simple et semi-manuel :
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import time
@@ -402,10 +403,30 @@ class BouyguesProvider:
             return None
         return None
 
+    def _is_invoice_element(self, href: str, text: str, title: str, aria: str) -> bool:
+        """Vrai si l'élément ressemble à un téléchargement de facture."""
+        label = f"{text} {title} {aria}".lower()
+        href_lower = (href or "").lower()
+        # Exclusions : navigation, déconnexion
+        if not href or href in ("#", "javascript:void(0)"):
+            return False
+        if "logout" in href_lower or "deconnexion" in href_lower:
+            return False
+        # Acceptation : PDF direct OU "facture" dans URL OU ("facture"/"télécharger" dans label)
+        if ".pdf" in href_lower:
+            return True
+        if "facture" in href_lower or "invoice" in href_lower:
+            return True
+        has_facture = "facture" in label or "invoice" in label
+        has_download = any(
+            k in label for k in ("télécharger", "telecharger", "download", "pdf")
+        )
+        return has_facture and has_download
+
     def list_orders_or_invoices(self) -> List[OrderInfo]:
         """
-        Liste les liens de téléchargement de factures visibles sur la page courante.
-        Hypothèse : tu es déjà sur une page de facturation Bouygues.
+        Liste les liens/boutons de téléchargement de factures visibles sur la page courante.
+        Cherche à la fois les <a> et les <button> (Bouygues utilise parfois des boutons).
         """
         from urllib.parse import urljoin
 
@@ -416,32 +437,84 @@ class BouyguesProvider:
         try:
             base_url = self.driver.current_url
             seen: set[str] = set()
-            links = self.driver.find_elements(By.TAG_NAME, "a")
-            for idx, a in enumerate(links):
+
+            # Chercher les liens <a>
+            for idx, a in enumerate(self.driver.find_elements(By.TAG_NAME, "a")):
                 href = (a.get_attribute("href") or "").strip()
                 text = (a.text or "").strip().lower()
                 title = (a.get_attribute("title") or "").strip().lower()
-                if not href or href == "#":
+                aria = (a.get_attribute("aria-label") or "").strip().lower()
+                if href.rstrip("/") == base_url.rstrip("/"):
                     continue
-                if (
-                    ".pdf" not in href
-                    and "facture" not in text
-                    and "facture" not in title
-                ):
+                if not self._is_invoice_element(href, text, title, aria):
                     continue
                 full = urljoin(base_url, href) if not href.startswith("http") else href
                 if full in seen:
                     continue
                 seen.add(full)
                 inv_date = self._parse_invoice_date_from_text(title or text or href)
-                order_id = f"bouygues_inv_{idx}_{hash(full) % 100000}"
                 out.append(
                     OrderInfo(
-                        order_id=order_id,
+                        order_id=f"bouygues_{hashlib.md5(full.encode()).hexdigest()[:12]}",
                         invoice_url=full,
                         invoice_date=inv_date,
                         raw_element=a,
                     )
+                )
+
+            # Chercher aussi les <button> avec onclick ou data-url (Bouygues SPA)
+            for idx, btn in enumerate(self.driver.find_elements(By.TAG_NAME, "button")):
+                text = (btn.text or "").strip().lower()
+                aria = (btn.get_attribute("aria-label") or "").strip().lower()
+                title = (btn.get_attribute("title") or "").strip().lower()
+                label = f"{text} {aria} {title}"
+                if not any(
+                    k in label
+                    for k in (
+                        "facture",
+                        "invoice",
+                        "télécharger",
+                        "telecharger",
+                        "download",
+                        "pdf",
+                    )
+                ):
+                    continue
+                # Récupérer l'URL depuis onclick ou data-*
+                href = (
+                    btn.get_attribute("data-url")
+                    or btn.get_attribute("data-href")
+                    or btn.get_attribute("data-link")
+                    or ""
+                ).strip()
+                if not href:
+                    # Essayer onclick
+                    onclick = btn.get_attribute("onclick") or ""
+                    m = re.search(r"['\"]([^'\"]*facture[^'\"]*)['\"]", onclick, re.I)
+                    if m:
+                        href = m.group(1)
+                if not href:
+                    continue
+                full = urljoin(base_url, href) if not href.startswith("http") else href
+                if full in seen:
+                    continue
+                seen.add(full)
+                inv_date = self._parse_invoice_date_from_text(label or href)
+                out.append(
+                    OrderInfo(
+                        order_id=f"bouygues_{hashlib.md5(full.encode()).hexdigest()[:12]}",
+                        invoice_url=full,
+                        invoice_date=inv_date,
+                        raw_element=btn,
+                    )
+                )
+
+            logger.info("Bouygues: %d lien(s)/bouton(s) de facture trouvé(s)", len(out))
+            if not out:
+                logger.warning(
+                    "Bouygues: aucune facture détectée sur %s — vérifiez que la page "
+                    "est bien la page 'Mes factures' et que vous êtes connecté.",
+                    base_url,
                 )
         except Exception as e:
             logger.warning("Bouygues list_orders_or_invoices: %s", e)
@@ -507,9 +580,6 @@ class BouyguesProvider:
             if isinstance(order_or_id, OrderInfo)
             else str(order_or_id)
         )
-        if not force_redownload and self.registry.is_downloaded(PROVIDER_BOUYGUES, oid):
-            logger.info("Bouygues: facture déjà présente pour %s, skip", oid)
-            return None
         url = None
         if isinstance(order_or_id, OrderInfo) and order_or_id.invoice_url:
             url = order_or_id.invoice_url
@@ -517,13 +587,20 @@ class BouyguesProvider:
             url = order_or_id
         if not url:
             return None
+        if not force_redownload and (
+            self.registry.is_downloaded(PROVIDER_BOUYGUES, oid)
+            or self.registry.is_downloaded_by_url(PROVIDER_BOUYGUES, url)
+        ):
+            logger.info("Bouygues: facture déjà présente pour %s, skip", oid)
+            return None
         filename = self._download_pdf(url, oid, invoice_date)
         if filename:
             self.registry.add(
                 PROVIDER_BOUYGUES,
                 oid,
                 filename,
-                invoice_date=invoice_date.isoformat() if invoice_date else None,
+                invoice_date=(invoice_date.isoformat() if invoice_date else None),
+                invoice_url=url,
             )
         return filename
 
@@ -539,21 +616,63 @@ class BouyguesProvider:
         force_redownload: bool = False,
         on_progress: Optional[Callable[[int, int, str], Any]] = None,
     ) -> Dict[str, Union[List[str], int]]:
-        """
-        Télécharge les factures visibles sur la page courante.
-        Les filtres de dates ne sont pas encore implémentés pour Bouygues (V1 simple).
-        """
+        """Télécharge les factures Bouygues avec filtre de dates optionnel."""
         ok = await self.login(otp_code=otp_code)
         if not ok:
             raise Exception("Échec de l'ouverture de session Bouygues Telecom")
         if not await self.navigate_to_invoices():
             # En mode semi-manuel, on ne bloque pas : on tente quand même la liste.
             logger.warning(
-                "Bouygues: navigate_to_invoices a échoué, on tente list_orders_or_invoices sur la page actuelle."
+                "Bouygues: navigate_to_invoices a échoué, "
+                "on tente list_orders_or_invoices sur la page actuelle."
             )
         orders = self.list_orders_or_invoices()
         if not orders:
             return {"count": 0, "files": []}
+
+        # Filtre de dates
+        date_start_d = None
+        date_end_d = None
+        if date_start:
+            try:
+                from datetime import datetime as _dt
+
+                date_start_d = _dt.strptime(date_start, "%Y-%m-%d").date()
+            except Exception:
+                pass
+        if date_end:
+            try:
+                from datetime import datetime as _dt
+
+                date_end_d = _dt.strptime(date_end, "%Y-%m-%d").date()
+            except Exception:
+                pass
+        has_filter = bool(year or month or months or date_start_d or date_end_d)
+        if has_filter:
+            filtered = []
+            for o in orders:
+                d = o.invoice_date
+                if d is None:
+                    filtered.append(o)
+                    continue
+                if year and d.year != year:
+                    continue
+                if month and d.month != month:
+                    continue
+                if months and d.month not in months:
+                    continue
+                if date_start_d and d < date_start_d:
+                    continue
+                if date_end_d and d > date_end_d:
+                    continue
+                filtered.append(o)
+            logger.info(
+                "Bouygues filtre date: %d/%d factures correspondent",
+                len(filtered),
+                len(orders),
+            )
+            orders = filtered
+
         total = min(len(orders), max_invoices)
         files: List[str] = []
         count = 0

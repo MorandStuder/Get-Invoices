@@ -31,7 +31,9 @@ from backend.models.schemas import (
 )
 from backend.providers import PROVIDER_LABELS, PROVIDERS
 from backend.providers.amazon import AmazonProvider
+from backend.providers.qobuz import QobuzProvider
 from backend.providers.bouygues import BouyguesProvider
+from backend.providers.decathlon import DecathlonProvider
 from backend.providers.fnac import FnacProvider
 from backend.providers.free_mobile import FreeMobileProvider
 from backend.providers.freebox import FreeboxProvider
@@ -44,21 +46,7 @@ _FRONTEND_URL = "http://localhost:3000"  # Frontend React (npm start)
 
 
 def _open_chrome(url: str) -> None:
-    """Ouvre Chrome sur l'URL donnée (Windows). Fallback sur le navigateur par défaut."""
-    import subprocess
-
-    chrome_paths = [
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-    ]
-    for chrome_path in chrome_paths:
-        if Path(chrome_path).exists():
-            try:
-                # Pas de --new-window : ouvre un onglet dans la fenêtre existante si Chrome est déjà ouvert
-                subprocess.Popen([chrome_path, url])
-                return
-            except Exception as e:
-                logging.getLogger(__name__).warning("Ouverture Chrome: %s", e)
+    """Ouvre l'UI dans le navigateur par défaut (profil utilisateur normal, pas GetInvoices)."""
     import webbrowser
 
     webbrowser.open(url)
@@ -134,6 +122,12 @@ class Settings(BaseSettings):
     orange_invoices_url: Optional[str] = (
         None  # URL complète de la page historique des factures
     )
+    # Decathlon (optionnel) — espace client decathlon.fr
+    decathlon_login: Optional[str] = None  # Email du compte Decathlon
+    decathlon_password: Optional[str] = None
+    # Qobuz (optionnel) — espace client qobuz.com
+    qobuz_login: Optional[str] = None  # Email du compte Qobuz
+    qobuz_password: Optional[str] = None
     # Interface
     start_single_window: bool = False  # Ouvrir Chrome sur l'UI au démarrage du backend
 
@@ -236,6 +230,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     downloaders = {}
     base_path = Path(settings.download_path)
 
+    def _chrome_dir(provider_id: str) -> Optional[str]:
+        """Retourne un sous-dossier dédié par provider pour éviter les conflits de lockfile Chrome."""
+        if not settings.selenium_chrome_profile_dir:
+            return None
+        p = Path(settings.selenium_chrome_profile_dir) / provider_id
+        p.mkdir(parents=True, exist_ok=True)
+        return str(p)
+
     browser = (settings.selenium_browser or "chrome").strip().lower()
     if browser not in ("chrome", "firefox"):
         browser = "chrome"
@@ -268,7 +270,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 manual_mode=settings.selenium_manual_mode,
                 browser=browser,
                 firefox_profile_path=settings.firefox_profile_path,
-                chrome_user_data_dir=settings.selenium_chrome_profile_dir,
+                chrome_user_data_dir=_chrome_dir("amazon"),
                 keep_browser_open=settings.selenium_keep_browser_open,
             )
             logger.info("Provider Amazon initialisé avec succès")
@@ -295,7 +297,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     timeout=settings.selenium_timeout,
                     browser=browser,
                     firefox_profile_path=settings.firefox_profile_path,
-                    chrome_user_data_dir=settings.selenium_chrome_profile_dir,
+                    chrome_user_data_dir=_chrome_dir("freebox"),
                     keep_browser_open=settings.selenium_keep_browser_open,
                 )
                 logger.info("Provider Freebox initialisé avec succès")
@@ -321,7 +323,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     timeout=settings.selenium_timeout,
                     browser=browser,
                     firefox_profile_path=settings.firefox_profile_path,
-                    chrome_user_data_dir=settings.selenium_chrome_profile_dir,
+                    chrome_user_data_dir=_chrome_dir("free_mobile"),
                     keep_browser_open=settings.selenium_keep_browser_open,
                 )
                 logger.info("Provider Free Mobile initialisé avec succès")
@@ -347,7 +349,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     timeout=settings.selenium_timeout,
                     browser=browser,
                     firefox_profile_path=settings.firefox_profile_path,
-                    chrome_user_data_dir=settings.selenium_chrome_profile_dir,
+                    chrome_user_data_dir=_chrome_dir("fnac"),
                     keep_browser_open=settings.selenium_keep_browser_open,
                 )
                 logger.info("Provider FNAC initialisé avec succès")
@@ -371,7 +373,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     timeout=settings.selenium_timeout,
                     browser=browser,
                     firefox_profile_path=settings.firefox_profile_path,
-                    chrome_user_data_dir=settings.selenium_chrome_profile_dir,
+                    chrome_user_data_dir=_chrome_dir("orange"),
                     keep_browser_open=settings.selenium_keep_browser_open,
                 )
                 logger.info("Provider Orange initialisé avec succès")
@@ -395,7 +397,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     timeout=settings.selenium_timeout,
                     browser=browser,
                     firefox_profile_path=settings.firefox_profile_path,
-                    chrome_user_data_dir=settings.selenium_chrome_profile_dir,
+                    chrome_user_data_dir=_chrome_dir("bouygues"),
                     keep_browser_open=settings.selenium_keep_browser_open,
                 )
                 logger.info("Provider Bouygues Telecom initialisé avec succès")
@@ -405,6 +407,56 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.debug(
                 "Bouygues Telecom non configuré (BOUYGUES_LOGIN / BOUYGUES_PASSWORD absents)"
             )
+
+    # Decathlon (si identifiants présents)
+    if DecathlonProvider.PROVIDER_ID in PROVIDERS:
+        if settings.decathlon_login and settings.decathlon_password:
+            try:
+                logger.info("Initialisation du provider Decathlon...")
+                decathlon_path = base_path / "decathlon"
+                decathlon_path.mkdir(parents=True, exist_ok=True)
+                downloaders[DecathlonProvider.PROVIDER_ID] = DecathlonProvider(
+                    login=settings.decathlon_login,
+                    password=settings.decathlon_password,
+                    download_path=decathlon_path,
+                    headless=settings.selenium_headless,
+                    timeout=settings.selenium_timeout,
+                    browser=browser,
+                    firefox_profile_path=settings.firefox_profile_path,
+                    chrome_user_data_dir=_chrome_dir("decathlon"),
+                    keep_browser_open=settings.selenium_keep_browser_open,
+                )
+                logger.info("Provider Decathlon initialisé avec succès")
+            except Exception as e:
+                logger.warning("Provider Decathlon non initialisé: %s", e)
+        else:
+            logger.debug(
+                "Decathlon non configuré (DECATHLON_LOGIN / DECATHLON_PASSWORD absents)"
+            )
+
+    # Qobuz (si identifiants présents)
+    if QobuzProvider.PROVIDER_ID in PROVIDERS:
+        if settings.qobuz_login and settings.qobuz_password:
+            try:
+                logger.info("Initialisation du provider Qobuz...")
+                qobuz_path = base_path / "qobuz"
+                qobuz_path.mkdir(parents=True, exist_ok=True)
+                downloaders[QobuzProvider.PROVIDER_ID] = QobuzProvider(
+                    login=settings.qobuz_login,
+                    password=settings.qobuz_password,
+                    download_path=qobuz_path,
+                    headless=settings.selenium_headless,
+                    timeout=settings.selenium_timeout,
+                    browser=browser,
+                    firefox_profile_path=settings.firefox_profile_path,
+                    chrome_user_data_dir=_chrome_dir("qobuz"),
+                    keep_browser_open=settings.selenium_keep_browser_open,
+                )
+                logger.info("Provider Qobuz initialisé avec succès")
+            except Exception as e:
+                logger.warning("Provider Qobuz non initialisé: %s", e)
+        else:
+            logger.debug("Qobuz non configuré (QOBUZ_LOGIN / QOBUZ_PASSWORD absents)")
 
     # Ouvrir l'interface dans Chrome si demandé (attend que le frontend soit prêt)
     if settings.start_single_window:
@@ -482,6 +534,14 @@ async def list_providers() -> ProvidersResponse:
             )
         elif pid == "orange":
             configured = bool(settings.orange_invoices_url)
+        elif pid == "decathlon":
+            configured = bool(settings.decathlon_login) and bool(
+                settings.decathlon_password
+            )
+        elif pid == "qobuz":
+            configured = bool(settings.qobuz_login) and bool(
+                settings.qobuz_password
+            )
         if implemented:
             configured = configured or pid in downloaders
         providers_list.append(
@@ -490,6 +550,36 @@ async def list_providers() -> ProvidersResponse:
             )
         )
     return ProvidersResponse(providers=providers_list)
+
+
+@app.get("/api/last-download-date")
+async def last_download_date(provider: str = "amazon") -> dict:
+    """
+    Retourne la date de la dernière facture téléchargée pour un provider.
+    Utilisé par le frontend pour l'option 'Depuis la dernière fois'.
+    """
+    from datetime import date as date_type
+
+    from backend.services.invoice_registry import InvoiceRegistry
+
+    pid = provider.strip().lower()
+    base_path = Path(settings.download_path)
+    provider_path = base_path / pid
+    if not provider_path.exists():
+        return {"date": None, "provider": pid}
+    registry = InvoiceRegistry(provider_path)
+    entries = registry.list_downloaded(pid)
+    latest: date_type | None = None
+    for entry in entries:
+        d = entry.get("invoice_date")
+        if d:
+            try:
+                parsed = date_type.fromisoformat(str(d))
+                if latest is None or parsed > latest:
+                    latest = parsed
+            except Exception:
+                pass
+    return {"date": latest.isoformat() if latest else None, "provider": pid}
 
 
 @app.get("/api/debug")
@@ -538,6 +628,7 @@ async def download_invoices(
         await progress_queue.put(("progress", current, total, message))
 
     async def run_download() -> None:
+        success = False
         try:
             result = await asyncio.wait_for(
                 downloader.download_invoices(
@@ -553,6 +644,7 @@ async def download_invoices(
                 ),
                 timeout=DOWNLOAD_TIMEOUT_SECONDS,
             )
+            success = True
             await progress_queue.put(("done", result, None, None))
         except asyncio.TimeoutError:
             await progress_queue.put(("error", "timeout", None, None))
@@ -563,14 +655,10 @@ async def download_invoices(
             logger.debug("Traceback: %s", traceback.format_exc())
             await progress_queue.put(("error", str(e), None, None))
         finally:
-            # Libérer le driver après chaque téléchargement pour éviter les conflits
-            # de profil Chrome si plusieurs fournisseurs sont utilisés successivement
-            try:
-                if hasattr(downloader, "driver") and downloader.driver is not None:
-                    await downloader.close()
-                    logger.info("Driver %s libéré après téléchargement", provider_id)
-            except Exception as e:
-                logger.debug("Fermeture driver %s: %s", provider_id, e)
+            # Ne pas fermer le driver après téléchargement : on garde la session ouverte
+            # pour réutiliser les cookies au prochain lancement (évite de se reconnecter).
+            # Le driver est fermé proprement à l'arrêt du backend (lifespan shutdown).
+            pass
 
     logger.info(
         "Démarrage téléchargement provider=%s max_invoices=%s year=%s month=%s otp=%s",

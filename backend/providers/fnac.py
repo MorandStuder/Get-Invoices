@@ -299,24 +299,35 @@ class FnacProvider:
                     "FNAC: chargement %s interrompu (%s)", FNAC_DIRECT_LOGIN_URL, e
                 )
 
-            logger.info(
-                "FNAC: en attente de connexion manuelle sur %s", FNAC_DIRECT_LOGIN_URL
-            )
-            logger.info("FNAC: connectez-vous dans le navigateur (5 minutes max).")
+            # Vérifier d'abord si déjà connecté (profil persistant)
+            time.sleep(3)
+            if self._is_logged_in():
+                logger.info(
+                    "FNAC: déjà connecté via profil persistant (%s)",
+                    self.driver.current_url[:80],
+                )
+                return True
 
-            max_wait = 300  # 5 minutes
-            interval = 5
+            # Attente connexion manuelle
+            logger.info(
+                "FNAC: connectez-vous manuellement dans le navigateur (2 minutes max)."
+            )
+            max_wait = 120
+            interval = 3
             elapsed = 0
             while elapsed < max_wait:
                 time.sleep(interval)
                 elapsed += interval
                 if self._is_logged_in():
                     logger.info(
-                        "FNAC: connexion détectée (URL: %s)",
+                        "FNAC: connexion manuelle détectée (URL: %s)",
                         self.driver.current_url[:80],
                     )
                     return True
-                logger.info("FNAC: attente connexion... (%ds/%ds)", elapsed, max_wait)
+                if elapsed % 30 == 0:
+                    logger.info(
+                        "FNAC: attente connexion... (%ds/%ds)", elapsed, max_wait
+                    )
 
             logger.warning("FNAC: timeout — connexion non détectée après %ds", max_wait)
             return False

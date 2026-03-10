@@ -164,9 +164,6 @@ class AmazonInvoiceDownloader:
             chrome_options.add_argument(
                 "--disable-features=TranslateUI,BlinkGenPropertyTrees"
             )
-            chrome_options.add_argument(
-                "--remote-debugging-port=9222"
-            )  # Pour éviter les crashes
             chrome_options.add_experimental_option(
                 "excludeSwitches", ["enable-automation"]
             )
@@ -1749,7 +1746,26 @@ class AmazonInvoiceDownloader:
             if not login_result:
                 if self._is_2fa_required():
                     raise Exception("Code 2FA requis - veuillez fournir le code OTP")
-                raise Exception("Échec de la connexion à Amazon")
+                # Connexion auto échouée (challenge, CAPTCHA…) : attendre connexion manuelle
+                if self.driver:
+                    logger.info(
+                        "Connexion automatique échouée — fenêtre Chrome ouverte, "
+                        "connectez-vous manuellement (5 min max)…"
+                    )
+                    max_wait, elapsed = 300, 0
+                    while elapsed < max_wait:
+                        time.sleep(5)
+                        elapsed += 5
+                        if self._is_logged_in():
+                            logger.info("Connexion manuelle détectée !")
+                            login_result = True
+                            break
+                        if elapsed % 30 == 0:
+                            logger.info(
+                                "Attente connexion manuelle… (%ds/%ds)", elapsed, max_wait
+                            )
+                if not login_result:
+                    raise Exception("Échec de la connexion à Amazon")
 
             if not await self.navigate_to_orders():
                 raise Exception("Impossible d'accéder à la page des commandes")

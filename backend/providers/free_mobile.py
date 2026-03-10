@@ -267,15 +267,17 @@ class FreeMobileProvider:
             else:
                 logger.error("Free Mobile: bouton de connexion non trouvé")
                 return False
-            time.sleep(4)
 
-            if not self._is_logged_in():
-                logger.warning(
-                    "Free Mobile: connexion peut avoir échoué (vérifier identifiants)"
-                )
-                return False
-            logger.info("Free Mobile: connexion réussie")
-            return True
+            # Attendre la connexion avec polling (max 30s)
+            for _ in range(15):
+                time.sleep(2)
+                if self._is_logged_in():
+                    logger.info("Free Mobile: connexion réussie")
+                    return True
+            logger.warning(
+                "Free Mobile: connexion peut avoir échoué (vérifier identifiants)"
+            )
+            return False
         except Exception as e:
             err_msg = str(e).lower()
             if (
@@ -839,13 +841,16 @@ class FreeMobileProvider:
         # Le libellé doit indiquer une facture
         if "facture" not in label and "invoice" not in label:
             return False
-        # L'URL doit pointer vers un document (PDF, facture, etc.)
+        # L'URL doit pointer vers un document de facturation (PDF ou URL explicite)
+        # "document" seul est trop permissif (peut être n'importe quel document CGV, etc.)
         href_ok = (
             ".pdf" in href_lower
             or "facture" in href_lower
             or "invoice" in href_lower
-            or "document" in href_lower
-            or "download" in href_lower
+            or (
+                "download" in href_lower
+                and ("facture" in href_lower or "invoice" in href_lower)
+            )
         )
         if not href_ok:
             return False

@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import './DownloadForm.css';
 import type { DownloadParams } from '../services/api';
 import type { ProviderInfo } from '../services/api';
+import { getLastDownloadDate } from '../services/api';
 
 interface DownloadResult {
   success: boolean;
@@ -33,7 +34,7 @@ const MONTHS = [
   { value: 12, label: 'Décembre' },
 ];
 
-type FilterType = 'none' | 'year' | 'months' | 'range';
+type FilterType = 'none' | 'since_last' | 'year' | 'months' | 'range';
 
 const DownloadForm: React.FC<DownloadFormProps> = ({
   providers,
@@ -56,12 +57,26 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
   }, [providers]);
 
   const [maxInvoices, setMaxInvoices] = useState<number>(100);
-  const [filterType, setFilterType] = useState<FilterType>('none');
+  const [filterType, setFilterType] = useState<FilterType>('since_last');
   const [year, setYear] = useState<number | ''>(new Date().getFullYear());
   const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
   const [dateStart, setDateStart] = useState<string>('');
   const [dateEnd, setDateEnd] = useState<string>('');
   const [forceRedownload, setForceRedownload] = useState<boolean>(false);
+  const [lastDownloadDate, setLastDownloadDate] = useState<string | null>(null);
+  const [lastDownloadLoading, setLastDownloadLoading] = useState<boolean>(false);
+
+  // Charger la date du dernier téléchargement quand le provider change
+  // ou quand l'option "depuis la dernière fois" est sélectionnée
+  useEffect(() => {
+    if (filterType !== 'since_last') return;
+    setLastDownloadLoading(true);
+    setLastDownloadDate(null);
+    getLastDownloadDate(provider)
+      .then((date) => setLastDownloadDate(date))
+      .catch(() => setLastDownloadDate(null))
+      .finally(() => setLastDownloadLoading(false));
+  }, [provider, filterType]);
 
   const toggleMonth = useCallback((m: number): void => {
     setSelectedMonths((prev) =>
@@ -76,14 +91,19 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
       max_invoices: maxInvoices,
       force_redownload: forceRedownload,
     };
-    if (filterType === 'year' && year) {
+    if (filterType === 'since_last') {
+      const today = new Date().toISOString().slice(0, 10);
+      if (lastDownloadDate) {
+        params.date_start = lastDownloadDate;
+        params.date_end = today;
+      }
+      // Si pas de date connue, pas de filtre → télécharge tout (normal pour premier lancement)
+    } else if (filterType === 'year' && year) {
       params.year = Number(year);
-    }
-    if (filterType === 'months' && year && selectedMonths.length > 0) {
+    } else if (filterType === 'months' && year && selectedMonths.length > 0) {
       params.year = Number(year);
       params.months = selectedMonths.slice();
-    }
-    if (filterType === 'range' && dateStart && dateEnd) {
+    } else if (filterType === 'range' && dateStart && dateEnd) {
       params.date_start = dateStart;
       params.date_end = dateEnd;
     }
@@ -93,7 +113,8 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
   const currentYear = new Date().getFullYear();
   const canSubmitRange = filterType !== 'range' || (dateStart && dateEnd);
   const canSubmitMonths = filterType !== 'months' || (year && selectedMonths.length > 0);
-  const canSubmit = canSubmitRange && canSubmitMonths;
+  const canSubmitSinceLast = filterType !== 'since_last' || !lastDownloadLoading;
+  const canSubmit = canSubmitRange && canSubmitMonths && canSubmitSinceLast;
 
   return (
     <form onSubmit={handleSubmit} className="download-form">
@@ -136,17 +157,39 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
       </div>
 
       <div className="form-group">
-        <label>Filtrer par période</label>
+        <label htmlFor="filterType">Filtrer par période</label>
         <select
+          id="filterType"
           value={filterType}
           onChange={(e): void => setFilterType(e.target.value as FilterType)}
         >
+          <option value="since_last">Depuis la dernière fois</option>
           <option value="none">Toutes les commandes</option>
           <option value="year">Une année</option>
           <option value="months">Année + un ou plusieurs mois</option>
           <option value="range">Plage de dates</option>
         </select>
       </div>
+
+      {filterType === 'since_last' && (
+        <div className="since-last-info">
+          {lastDownloadLoading ? (
+            <span className="since-last-loading">Recherche du dernier téléchargement…</span>
+          ) : lastDownloadDate ? (
+            <span className="since-last-date">
+              Dernière facture téléchargée : <strong>{lastDownloadDate}</strong>
+              <br />
+              <small>Téléchargera les factures à partir de cette date jusqu'à aujourd'hui.</small>
+            </span>
+          ) : (
+            <span className="since-last-none">
+              Aucun téléchargement précédent trouvé pour ce fournisseur.
+              <br />
+              <small>Toutes les factures disponibles seront téléchargées.</small>
+            </span>
+          )}
+        </div>
+      )}
 
       {filterType === 'year' && (
         <div className="form-group">

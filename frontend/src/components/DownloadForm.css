@@ -154,3 +154,125 @@
   }
 }
 
+.since-last-info {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  background: #f0f7ff;
+  border: 1px solid #b8d9f8;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #1a4a7a;
+}
+
+.since-last-loading {
+  color: #666;
+  font-style: italic;
+}
+
+.since-last-none {
+  color: #7a5a00;
+  background: #fffbe6;
+}
+
+.since-last-date strong {
+  font-family: monospace;
+  font-size: 1rem;
+}
+
+/* Section "Tout télécharger" */
+.download-all-section {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  background: #f8f6ff;
+  border: 1px solid #d0c4f7;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.download-all-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.download-all-label {
+  font-weight: 600;
+  color: #4a2d8a;
+  font-size: 0.95rem;
+}
+
+.download-all-button {
+  padding: 0.65rem 1.25rem;
+  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  white-space: nowrap;
+}
+
+.download-all-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(118, 75, 162, 0.35);
+}
+
+.download-all-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.all-results-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.all-result-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 5px;
+  font-size: 0.88rem;
+  background: white;
+  border: 1px solid #e0e0e0;
+}
+
+.all-result-item.all-result-running {
+  border-color: #b8d9f8;
+  background: #f0f7ff;
+}
+
+.all-result-item.all-result-done {
+  border-color: #cfc;
+  background: #f3fff3;
+}
+
+.all-result-item.all-result-error {
+  border-color: #fcc;
+  background: #fff3f3;
+}
+
+.all-result-name {
+  font-weight: 600;
+  color: #333;
+  min-width: 120px;
+}
+
+.all-result-msg {
+  color: #555;
+  text-align: right;
+  flex: 1;
+}
+

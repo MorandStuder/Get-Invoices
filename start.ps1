@@ -84,10 +84,19 @@ function Kill-ProcessOnPort {
     $pids = $pids | Sort-Object -Unique | Where-Object { $_ -gt 0 -and $_ -ne $currentPID }
     if ($pids) {
         Write-Host "Arret du processus existant sur le port $Port (PIDs: $($pids -join ','))..." -ForegroundColor Yellow
+        # Arrêt propre d'abord (sans /F) : laisse Chrome sauvegarder les cookies/sessions
         foreach ($p in $pids) {
-            cmd /c "taskkill /F /PID $p /T 2>nul"
+            cmd /c "taskkill /PID $p /T 2>nul"
         }
-        Start-Sleep -Seconds 4
+        Start-Sleep -Seconds 5
+        # Force kill si le processus est encore actif
+        foreach ($p in $pids) {
+            $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
+            if ($proc) {
+                cmd /c "taskkill /F /PID $p /T 2>nul"
+            }
+        }
+        Start-Sleep -Seconds 2
     }
 }
 

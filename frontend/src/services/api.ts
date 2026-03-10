@@ -48,6 +48,14 @@ export const getProviders = async (): Promise<ProviderInfo[]> => {
   return response.data.providers;
 };
 
+export const getLastDownloadDate = async (provider: string): Promise<string | null> => {
+  const response = await axios.get<{ date: string | null; provider: string }>(
+    `${API_BASE_URL}/api/last-download-date`,
+    { params: { provider } }
+  );
+  return response.data.date;
+};
+
 export interface DownloadParams {
   provider?: string;
   max_invoices: number;
