@@ -321,7 +321,7 @@ const App: React.FC = () => {
                   onChange={(e): void => setOtpCode(e.target.value)}
                   maxLength={10}
                   disabled={loading}
-                  onKeyPress={(e): void => {
+                  onKeyDown={(e): void => {
                     if (e.key === 'Enter') {
                       handleSubmitOTP();
                     }

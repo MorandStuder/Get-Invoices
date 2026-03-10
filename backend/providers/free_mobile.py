@@ -6,6 +6,7 @@ Connexion : https://mobile.free.fr/account/v2/login
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import time
@@ -682,7 +683,9 @@ class FreeMobileProvider:
                     if not norm or norm in seen_hrefs:
                         continue
                     seen_hrefs.add(norm)
-                    order_id = f"free_mobile_inv_{idx}_{hash(norm) % 100000}"
+                    order_id = (
+                        f"free_mobile_inv_{hashlib.md5(norm.encode()).hexdigest()[:12]}"
+                    )
                     all_orders.append(
                         OrderInfo(
                             order_id=order_id,
@@ -905,7 +908,9 @@ class FreeMobileProvider:
                     )
                     if inv_date is None:
                         inv_date = self._get_date_from_context(a)
-                    order_id = f"free_mobile_inv_{len(out)}_{hash(norm) % 100000}"
+                    order_id = (
+                        f"free_mobile_inv_{hashlib.md5(norm.encode()).hexdigest()[:12]}"
+                    )
                     out.append(
                         OrderInfo(
                             order_id=order_id,

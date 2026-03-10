@@ -4,7 +4,7 @@ Schémas Pydantic pour les requêtes et réponses de l'API.
 
 from typing import Annotated, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DownloadRequest(BaseModel):
@@ -45,8 +45,8 @@ class DownloadRequest(BaseModel):
         description="Si True, retélécharge les factures déjà présentes dans le registre",
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "max_invoices": 50,
                 "year": 2024,
@@ -54,6 +54,7 @@ class DownloadRequest(BaseModel):
                 "force_redownload": False,
             }
         }
+    )
 
 
 class DownloadResponse(BaseModel):

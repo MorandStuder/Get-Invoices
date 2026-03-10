@@ -7,6 +7,7 @@ le provider détecte la connexion et télécharge les PDFs visibles.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import time
@@ -418,7 +419,9 @@ class OrangeProvider:
                             else href
                         )
                         inv_date = self._parse_invoice_date(text)
-                        order_id = f"orange_url_{idx}_{hash(full) % 100000}"
+                        order_id = (
+                            f"orange_url_{hashlib.md5(full.encode()).hexdigest()[:12]}"
+                        )
                         logger.info(
                             "Orange: lien URL directe: %s | date=%s",
                             full[:80],

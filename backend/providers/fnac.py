@@ -6,6 +6,7 @@ Connexion : https://www.fnac.com/ puis « Me connecter ».
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import time
@@ -655,7 +656,7 @@ class FnacProvider:
                     order_id = (
                         f"fnac_{order_num}"
                         if order_num
-                        else f"fnac_ord_{len(out)}_{hash(full) % 100000}"
+                        else f"fnac_ord_{hashlib.md5(full.encode()).hexdigest()[:12]}"
                     )
 
                     out.append(

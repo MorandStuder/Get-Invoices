@@ -5,6 +5,7 @@ Téléchargement des factures depuis l'espace client Freebox.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import time
@@ -398,7 +399,9 @@ class FreeboxProvider:
                         href = urljoin(base_url, href)
                     title = (a.get_attribute("title") or a.text or "").strip()
                     inv_date = self._parse_invoice_date_from_title(title)
-                    order_id = f"freebox_inv_{i}_{hash(href) % 100000}"
+                    order_id = (
+                        f"freebox_inv_{hashlib.md5(href.encode()).hexdigest()[:12]}"
+                    )
                     out.append(
                         OrderInfo(
                             order_id=order_id,
