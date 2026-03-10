@@ -92,7 +92,9 @@
   font-size: 1.1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
 }
 
 .download-button:hover:not(:disabled) {
@@ -214,7 +216,9 @@
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
   white-space: nowrap;
 }
 
@@ -275,4 +279,3 @@
   text-align: right;
   flex: 1;
 }
-

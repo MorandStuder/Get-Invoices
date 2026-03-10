@@ -19,7 +19,7 @@ def test_freebox_provider_init() -> None:
         download_path="./test_factures_freebox",
     )
     assert p.provider_id == "freebox"
-    assert p.login == "test@free.fr"
+    assert p._login == "test@free.fr"
     assert p.download_path.name == "test_factures_freebox"
 
 

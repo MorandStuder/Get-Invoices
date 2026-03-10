@@ -1,7 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL =
-  process.env.REACT_APP_API_URL || 'http://localhost:8001';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8001';
 
 export interface DownloadResponse {
   success: boolean;
@@ -39,16 +38,22 @@ interface ProvidersResponse {
 }
 
 export const getStatus = async (): Promise<StatusResponse> => {
-  const response = await axios.get<StatusResponse>(`${API_BASE_URL}/api/status`);
+  const response = await axios.get<StatusResponse>(
+    `${API_BASE_URL}/api/status`
+  );
   return response.data;
 };
 
 export const getProviders = async (): Promise<ProviderInfo[]> => {
-  const response = await axios.get<ProvidersResponse>(`${API_BASE_URL}/api/providers`);
+  const response = await axios.get<ProvidersResponse>(
+    `${API_BASE_URL}/api/providers`
+  );
   return response.data.providers;
 };
 
-export const getLastDownloadDate = async (provider: string): Promise<string | null> => {
+export const getLastDownloadDate = async (
+  provider: string
+): Promise<string | null> => {
   const response = await axios.get<{ date: string | null; provider: string }>(
     `${API_BASE_URL}/api/last-download-date`,
     { params: { provider } }
@@ -83,7 +88,8 @@ export const downloadInvoices = async (
   if (params.provider) body.provider = params.provider;
   if (params.year != null) body.year = params.year;
   if (params.month != null) body.month = params.month;
-  if (params.months != null && params.months.length > 0) body.months = params.months;
+  if (params.months != null && params.months.length > 0)
+    body.months = params.months;
   if (params.date_start) body.date_start = params.date_start;
   if (params.date_end) body.date_end = params.date_end;
 
@@ -96,7 +102,8 @@ export const downloadInvoices = async (
 
   if (!response.ok && !response.body) {
     const errData = await response.json().catch(() => ({}));
-    const detail = (errData as { detail?: string }).detail || response.statusText;
+    const detail =
+      (errData as { detail?: string }).detail || response.statusText;
     if (response.status === 401) {
       const err = new Error(detail) as Error & { requiresOtp?: boolean };
       err.requiresOtp = true;
@@ -137,7 +144,8 @@ export const downloadInvoices = async (
             lastResult = data as unknown as DownloadResponse;
           } else if (eventType === 'error') {
             const detail = (data.detail as string) || 'Erreur';
-            const requiresOtp = (data.requires_otp as boolean) || /2FA|OTP/i.test(detail);
+            const requiresOtp =
+              (data.requires_otp as boolean) || /2FA|OTP/i.test(detail);
             const err = new Error(detail) as Error & { requiresOtp?: boolean };
             err.requiresOtp = requiresOtp;
             throw err;
@@ -167,7 +175,8 @@ export const submitOTP = async (otpCode: string): Promise<OTPResponse> => {
 };
 
 export const check2FA = async (): Promise<OTPResponse> => {
-  const response = await axios.get<OTPResponse>(`${API_BASE_URL}/api/check-2fa`);
+  const response = await axios.get<OTPResponse>(
+    `${API_BASE_URL}/api/check-2fa`
+  );
   return response.data;
 };
-

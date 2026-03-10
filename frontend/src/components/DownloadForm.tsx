@@ -64,7 +64,8 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
   const [dateEnd, setDateEnd] = useState<string>('');
   const [forceRedownload, setForceRedownload] = useState<boolean>(false);
   const [lastDownloadDate, setLastDownloadDate] = useState<string | null>(null);
-  const [lastDownloadLoading, setLastDownloadLoading] = useState<boolean>(false);
+  const [lastDownloadLoading, setLastDownloadLoading] =
+    useState<boolean>(false);
 
   // Charger la date du dernier téléchargement quand le provider change
   // ou quand l'option "depuis la dernière fois" est sélectionnée
@@ -80,7 +81,9 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
 
   const toggleMonth = useCallback((m: number): void => {
     setSelectedMonths((prev) =>
-      prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m].sort((a, b) => a - b)
+      prev.includes(m)
+        ? prev.filter((x) => x !== m)
+        : [...prev, m].sort((a, b) => a - b)
     );
   }, []);
 
@@ -112,8 +115,10 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
 
   const currentYear = new Date().getFullYear();
   const canSubmitRange = filterType !== 'range' || (dateStart && dateEnd);
-  const canSubmitMonths = filterType !== 'months' || (year && selectedMonths.length > 0);
-  const canSubmitSinceLast = filterType !== 'since_last' || !lastDownloadLoading;
+  const canSubmitMonths =
+    filterType !== 'months' || (year && selectedMonths.length > 0);
+  const canSubmitSinceLast =
+    filterType !== 'since_last' || !lastDownloadLoading;
   const canSubmit = canSubmitRange && canSubmitMonths && canSubmitSinceLast;
 
   return (
@@ -135,7 +140,11 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
                 disabled={!p.implemented || !p.configured}
               >
                 {p.name}
-                {!p.implemented ? ' (à venir)' : !p.configured ? ' (non configuré)' : ''}
+                {!p.implemented
+                  ? ' (à venir)'
+                  : !p.configured
+                    ? ' (non configuré)'
+                    : ''}
               </option>
             ))
           )}
@@ -174,18 +183,25 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
       {filterType === 'since_last' && (
         <div className="since-last-info">
           {lastDownloadLoading ? (
-            <span className="since-last-loading">Recherche du dernier téléchargement…</span>
+            <span className="since-last-loading">
+              Recherche du dernier téléchargement…
+            </span>
           ) : lastDownloadDate ? (
             <span className="since-last-date">
               Dernière facture téléchargée : <strong>{lastDownloadDate}</strong>
               <br />
-              <small>Téléchargera les factures à partir de cette date jusqu'à aujourd'hui.</small>
+              <small>
+                Téléchargera les factures à partir de cette date jusqu'à
+                aujourd'hui.
+              </small>
             </span>
           ) : (
             <span className="since-last-none">
               Aucun téléchargement précédent trouvé pour ce fournisseur.
               <br />
-              <small>Toutes les factures disponibles seront téléchargées.</small>
+              <small>
+                Toutes les factures disponibles seront téléchargées.
+              </small>
             </span>
           )}
         </div>
@@ -200,7 +216,9 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
             min="2020"
             max={currentYear}
             value={year}
-            onChange={(e): void => setYear(e.target.value ? Number(e.target.value) : '')}
+            onChange={(e): void =>
+              setYear(e.target.value ? Number(e.target.value) : '')
+            }
           />
         </div>
       )}
@@ -215,7 +233,9 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
               min="2020"
               max={currentYear}
               value={year}
-              onChange={(e): void => setYear(e.target.value ? Number(e.target.value) : '')}
+              onChange={(e): void =>
+                setYear(e.target.value ? Number(e.target.value) : '')
+              }
             />
           </div>
           <div className="form-group">
@@ -285,7 +305,9 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
       )}
 
       {result && (
-        <div className={`result-message ${result.success ? 'success' : 'error'}`}>
+        <div
+          className={`result-message ${result.success ? 'success' : 'error'}`}
+        >
           <strong>{result.success ? '✅ Succès' : '❌ Échec'}:</strong>{' '}
           {result.message}
           {result.files.length > 0 && (

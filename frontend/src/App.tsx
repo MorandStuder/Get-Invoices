@@ -55,9 +55,13 @@ const App: React.FC = () => {
   const [requiresOTP, setRequiresOTP] = useState<boolean>(false);
   const [otpCode, setOtpCode] = useState<string>('');
   const [otpError, setOtpError] = useState<string | null>(null);
-  const [pendingDownload, setPendingDownload] = useState<DownloadParams | null>(null);
+  const [pendingDownload, setPendingDownload] = useState<DownloadParams | null>(
+    null
+  );
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [allResults, setAllResults] = useState<ProviderRunResult[] | null>(null);
+  const [allResults, setAllResults] = useState<ProviderRunResult[] | null>(
+    null
+  );
   const [allLoading, setAllLoading] = useState<boolean>(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const allAbortRef = useRef<boolean>(false);
@@ -73,7 +77,9 @@ const App: React.FC = () => {
 
   const toggleAllMonth = useCallback((m: number): void => {
     setAllSelectedMonths((prev) =>
-      prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m].sort((a, b) => a - b)
+      prev.includes(m)
+        ? prev.filter((x) => x !== m)
+        : [...prev, m].sort((a, b) => a - b)
     );
   }, []);
 
@@ -96,7 +102,9 @@ const App: React.FC = () => {
       }
     } catch (err) {
       if (axios.isAxiosError(err) && err.code === 'ERR_NETWORK') {
-        setStatus('Backend injoignable. Lancez .\\start.ps1 ou le backend sur http://localhost:8001');
+        setStatus(
+          'Backend injoignable. Lancez .\\start.ps1 ou le backend sur http://localhost:8001'
+        );
       } else {
         setStatus('Erreur de connexion au serveur');
       }
@@ -132,21 +140,36 @@ const App: React.FC = () => {
       setRequiresOTP(false);
     } catch (err: unknown) {
       setProgress(null);
-      if (err instanceof Error && (err as Error & { name?: string }).name === 'AbortError') {
+      if (
+        err instanceof Error &&
+        (err as Error & { name?: string }).name === 'AbortError'
+      ) {
         setStatus('Téléchargement annulé');
         setError(null);
-      } else if (err instanceof Error && (err as Error & { requiresOtp?: boolean }).requiresOtp) {
+      } else if (
+        err instanceof Error &&
+        (err as Error & { requiresOtp?: boolean }).requiresOtp
+      ) {
         setRequiresOTP(true);
         setPendingDownload(params);
-        setError(err.message || 'Code 2FA requis. Veuillez saisir le code reçu par SMS, email ou application.');
-        setStatus('Code 2FA requis');
-      } else if (err instanceof Error && err.message.includes('Failed to fetch')) {
         setError(
-          'Impossible de joindre le backend. Vérifiez qu\'il est démarré (http://localhost:8001).'
+          err.message ||
+            'Code 2FA requis. Veuillez saisir le code reçu par SMS, email ou application.'
+        );
+        setStatus('Code 2FA requis');
+      } else if (
+        err instanceof Error &&
+        err.message.includes('Failed to fetch')
+      ) {
+        setError(
+          "Impossible de joindre le backend. Vérifiez qu'il est démarré (http://localhost:8001)."
         );
         setStatus('Erreur réseau');
       } else if (err instanceof Error && err.message.includes('timeout')) {
-        setError(err.message || 'Téléchargement interrompu (timeout). Réduisez la période ou le nombre de factures.');
+        setError(
+          err.message ||
+            'Téléchargement interrompu (timeout). Réduisez la période ou le nombre de factures.'
+        );
         setStatus('Timeout');
       } else {
         const errorMessage =
@@ -166,7 +189,10 @@ const App: React.FC = () => {
     abortControllerRef.current?.abort();
   };
 
-  const buildAllParams = (providerId: string, lastDate: string | null): DownloadParams => {
+  const buildAllParams = (
+    providerId: string,
+    lastDate: string | null
+  ): DownloadParams => {
     const today = new Date().toISOString().slice(0, 10);
     const params: DownloadParams = {
       provider: providerId,
@@ -174,7 +200,10 @@ const App: React.FC = () => {
       force_redownload: allForceRedownload,
     };
     if (allFilterType === 'since_last') {
-      if (lastDate) { params.date_start = lastDate; params.date_end = today; }
+      if (lastDate) {
+        params.date_start = lastDate;
+        params.date_end = today;
+      }
     } else if (allFilterType === 'year') {
       params.year = allYear;
     } else if (allFilterType === 'months' && allSelectedMonths.length > 0) {
@@ -217,28 +246,42 @@ const App: React.FC = () => {
       setStatus(`[${p.name}] Connexion…`);
 
       try {
-        const lastDate = allFilterType === 'since_last' ? await getLastDownloadDate(p.id) : null;
+        const lastDate =
+          allFilterType === 'since_last'
+            ? await getLastDownloadDate(p.id)
+            : null;
         const params = buildAllParams(p.id, lastDate);
 
-        const response = await downloadInvoices(params, undefined, (prog: DownloadProgress) => {
-          const msg = prog.message || `${prog.current} facture(s)`;
-          setAllResults((prev) =>
-            prev!.map((r, idx) => (idx === i ? { ...r, message: msg } : r))
-          );
-          setStatus(`[${p.name}] ${msg}`);
-        });
+        const response = await downloadInvoices(
+          params,
+          undefined,
+          (prog: DownloadProgress) => {
+            const msg = prog.message || `${prog.current} facture(s)`;
+            setAllResults((prev) =>
+              prev!.map((r, idx) => (idx === i ? { ...r, message: msg } : r))
+            );
+            setStatus(`[${p.name}] ${msg}`);
+          }
+        );
 
         setAllResults((prev) =>
           prev!.map((r, idx) =>
             idx === i
-              ? { ...r, status: 'done', count: response.count, message: `${response.count} facture(s)` }
+              ? {
+                  ...r,
+                  status: 'done',
+                  count: response.count,
+                  message: `${response.count} facture(s)`,
+                }
               : r
           )
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Erreur';
         setAllResults((prev) =>
-          prev!.map((r, idx) => (idx === i ? { ...r, status: 'error', message: msg } : r))
+          prev!.map((r, idx) =>
+            idx === i ? { ...r, status: 'error', message: msg } : r
+          )
         );
       }
     }
@@ -280,7 +323,9 @@ const App: React.FC = () => {
       }
     } catch (err: unknown) {
       const errorMessage =
-        err instanceof Error ? err.message : 'Erreur lors de la soumission du code';
+        err instanceof Error
+          ? err.message
+          : 'Erreur lors de la soumission du code';
       setOtpError(errorMessage);
     } finally {
       setLoading(false);
@@ -297,7 +342,9 @@ const App: React.FC = () => {
     <div className="App">
       <header className="App-header">
         <h1>📄 Invoice Downloader</h1>
-        <p className="subtitle">Téléchargez vos factures Free, Free Mobile, Amazon…</p>
+        <p className="subtitle">
+          Téléchargez vos factures Free, Free Mobile, Amazon…
+        </p>
       </header>
 
       <main className="App-main">
@@ -309,7 +356,8 @@ const App: React.FC = () => {
               <h2>🔐 Authentification à deux facteurs</h2>
               <p>Un code de vérification a été demandé.</p>
               <p className="otp-instructions">
-                Entrez le code que vous avez reçu par SMS, email ou votre application d'authentification.
+                Entrez le code que vous avez reçu par SMS, email ou votre
+                application d'authentification.
               </p>
 
               <div className="otp-input-group">
@@ -377,10 +425,13 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {providers.filter((p) => p.implemented && p.configured).length >= 2 && (
+            {providers.filter((p) => p.implemented && p.configured).length >=
+              2 && (
               <div className="download-all-section">
                 <div className="download-all-header">
-                  <span className="download-all-label">Tous les fournisseurs</span>
+                  <span className="download-all-label">
+                    Tous les fournisseurs
+                  </span>
                   {allLoading ? (
                     <button
                       type="button"
@@ -407,7 +458,9 @@ const App: React.FC = () => {
                   <select
                     id="allFilterType"
                     value={allFilterType}
-                    onChange={(e): void => setAllFilterType(e.target.value as FilterType)}
+                    onChange={(e): void =>
+                      setAllFilterType(e.target.value as FilterType)
+                    }
                     disabled={allLoading}
                   >
                     <option value="since_last">Depuis la dernière fois</option>
@@ -482,7 +535,9 @@ const App: React.FC = () => {
                     <input
                       type="checkbox"
                       checked={allForceRedownload}
-                      onChange={(e): void => setAllForceRedownload(e.target.checked)}
+                      onChange={(e): void =>
+                        setAllForceRedownload(e.target.checked)
+                      }
                       disabled={allLoading}
                     />
                     <span>Forcer le re-téléchargement</span>
@@ -492,8 +547,13 @@ const App: React.FC = () => {
                 {allResults && (
                   <ul className="all-results-list">
                     {allResults.map((r) => (
-                      <li key={r.providerId} className={`all-result-item all-result-${r.status}`}>
-                        <span className="all-result-name">{r.providerName}</span>
+                      <li
+                        key={r.providerId}
+                        className={`all-result-item all-result-${r.status}`}
+                      >
+                        <span className="all-result-name">
+                          {r.providerName}
+                        </span>
                         <span className="all-result-msg">
                           {r.status === 'pending' && '⏳'}
                           {r.status === 'running' && '⏳ '}

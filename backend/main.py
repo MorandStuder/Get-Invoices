@@ -31,13 +31,13 @@ from backend.models.schemas import (
 )
 from backend.providers import PROVIDER_LABELS, PROVIDERS
 from backend.providers.amazon import AmazonProvider
-from backend.providers.qobuz import QobuzProvider
 from backend.providers.bouygues import BouyguesProvider
 from backend.providers.decathlon import DecathlonProvider
 from backend.providers.fnac import FnacProvider
 from backend.providers.free_mobile import FreeMobileProvider
 from backend.providers.freebox import FreeboxProvider
 from backend.providers.orange import OrangeProvider
+from backend.providers.qobuz import QobuzProvider
 
 # Racine du projet (où se trouve .env), quel que soit le répertoire de travail au démarrage
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -539,9 +539,7 @@ async def list_providers() -> ProvidersResponse:
                 settings.decathlon_password
             )
         elif pid == "qobuz":
-            configured = bool(settings.qobuz_login) and bool(
-                settings.qobuz_password
-            )
+            configured = bool(settings.qobuz_login) and bool(settings.qobuz_password)
         if implemented:
             configured = configured or pid in downloaders
         providers_list.append(

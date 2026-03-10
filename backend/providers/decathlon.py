@@ -505,7 +505,7 @@ class DecathlonProvider:
                         card_text = self.driver.execute_script(
                             "var el = arguments[0];"
                             "var p = el.closest('article, section, li,"
-                            " [class*=\"card\"], [class*=\"order\"]');"
+                            ' [class*="card"], [class*="order"]\');'
                             "return p ? p.innerText : '';",
                             a,
                         )
@@ -514,7 +514,8 @@ class DecathlonProvider:
                             # Ignorer les commandes annulées
                             if "annulée" in card_lower or "annulé" in card_lower:
                                 logger.info(
-                                    "Decathlon: commande annulée ignorée (%s)", href[:60]
+                                    "Decathlon: commande annulée ignorée (%s)",
+                                    href[:60],
                                 )
                                 continue
                             # Ignorer les commandes à 0,00 € (retours, erreurs)
@@ -674,9 +675,7 @@ class DecathlonProvider:
                                     break
                             except Exception:
                                 continue
-                        if filled and self._profile_info.get(
-                            keys[0].split("_")[0], ""
-                        ):
+                        if filled and self._profile_info.get(keys[0].split("_")[0], ""):
                             break
 
                 if filled >= 3:
@@ -721,11 +720,29 @@ class DecathlonProvider:
                     if not el.is_displayed():
                         continue
                     text = (el.text or "").lower()
-                    href = (el.get_attribute("href") or "").strip() if tag == "a" else ""
-                    has_dl = "télécharger" in text or "telecharger" in text or "download" in text
-                    has_inv = "facture" in text or "invoice" in text or ".pdf" in href.lower()
+                    href = (
+                        (el.get_attribute("href") or "").strip() if tag == "a" else ""
+                    )
+                    has_dl = (
+                        "télécharger" in text
+                        or "telecharger" in text
+                        or "download" in text
+                    )
+                    has_inv = (
+                        "facture" in text or "invoice" in text or ".pdf" in href.lower()
+                    )
                     if has_dl and has_inv:
-                        candidates.insert(0, (el, href if href not in ("#", "javascript:void(0)") else None))
+                        candidates.insert(
+                            0,
+                            (
+                                el,
+                                (
+                                    href
+                                    if href not in ("#", "javascript:void(0)")
+                                    else None
+                                ),
+                            ),
+                        )
                     elif has_dl and tag == "a" and href:
                         candidates.append((el, href))
                     elif has_inv and tag == "a" and ".pdf" in href.lower():
@@ -735,7 +752,9 @@ class DecathlonProvider:
 
         if candidates:
             el, href = candidates[0]
-            logger.info("Decathlon: lien facture trouvé (href=%s)", (href or "clic")[:80])
+            logger.info(
+                "Decathlon: lien facture trouvé (href=%s)", (href or "clic")[:80]
+            )
             return el, href
         return None, None
 
@@ -786,9 +805,12 @@ class DecathlonProvider:
                 # Si modal annulé, pas de fichier
                 downloaded = self._wait_for_browser_download(existing_pdfs, max_wait=15)
                 if downloaded:
-                    return self._rename_browser_download(downloaded, order_id, invoice_date)
+                    return self._rename_browser_download(
+                        downloaded, order_id, invoice_date
+                    )
                 logger.warning(
-                    "Decathlon: commande %s — modal traité mais pas de PDF", order_id[:40]
+                    "Decathlon: commande %s — modal traité mais pas de PDF",
+                    order_id[:40],
                 )
                 return None
 
@@ -970,8 +992,13 @@ class DecathlonProvider:
                     continue
         except Exception as e:
             logger.warning("Decathlon _get_pagination_urls: %s", e)
-        urls.sort(key=lambda u: int(re.search(r"page=(\d+)", u).group(1))
-                  if re.search(r"page=(\d+)", u) else 0)
+        urls.sort(
+            key=lambda u: (
+                int(re.search(r"page=(\d+)", u).group(1))
+                if re.search(r"page=(\d+)", u)
+                else 0
+            )
+        )
         logger.info("Decathlon: %d page(s) de pagination trouvée(s)", len(urls))
         return urls
 
@@ -1028,7 +1055,10 @@ class DecathlonProvider:
         # Page 1
         page1_orders = self.list_orders_or_invoices()
         if not page1_orders and self.driver:
-            logger.info("Decathlon: aucune commande sur la page actuelle, navigation vers %s", DECATHLON_ORDERS_URL)
+            logger.info(
+                "Decathlon: aucune commande sur la page actuelle, navigation vers %s",
+                DECATHLON_ORDERS_URL,
+            )
             try:
                 self.driver.get(DECATHLON_ORDERS_URL)
                 time.sleep(3)
@@ -1074,8 +1104,7 @@ class DecathlonProvider:
                         filtered.append(o)
                 elif year and month:
                     if o.invoice_date is None or (
-                        o.invoice_date.year == year
-                        and o.invoice_date.month == month
+                        o.invoice_date.year == year and o.invoice_date.month == month
                     ):
                         filtered.append(o)
                 elif year:

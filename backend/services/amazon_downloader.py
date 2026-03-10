@@ -1762,7 +1762,9 @@ class AmazonInvoiceDownloader:
                             break
                         if elapsed % 30 == 0:
                             logger.info(
-                                "Attente connexion manuelle… (%ds/%ds)", elapsed, max_wait
+                                "Attente connexion manuelle… (%ds/%ds)",
+                                elapsed,
+                                max_wait,
                             )
                 if not login_result:
                     raise Exception("Échec de la connexion à Amazon")

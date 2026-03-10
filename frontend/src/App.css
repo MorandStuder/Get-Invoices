@@ -88,7 +88,7 @@
 
 .otp-input:focus {
   outline: none;
-  border-color: #4CAF50;
+  border-color: #4caf50;
 }
 
 .otp-input:disabled {
@@ -99,7 +99,7 @@
 .otp-submit-button {
   padding: 0.75rem 1.5rem;
   font-size: 1rem;
-  background-color: #4CAF50;
+  background-color: #4caf50;
   color: white;
   border: none;
   border-radius: 6px;
@@ -162,11 +162,12 @@
   border: 1px solid #e57373;
   border-radius: 6px;
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
 }
 
 .cancel-button:hover {
   background-color: #ffebee;
   color: #b71c1c;
 }
-

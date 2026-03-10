@@ -43,4 +43,3 @@ const StatusDisplay: React.FC<StatusDisplayProps> = ({ status, progress }) => {
 };
 
 export default StatusDisplay;
-

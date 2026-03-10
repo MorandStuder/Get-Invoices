@@ -57,7 +57,9 @@ class QobuzProvider:
         chrome_user_data_dir: Optional[str] = None,
         keep_browser_open: bool = False,
     ) -> None:
-        self.email = login  # stocké sous email pour éviter l'écrasement de la méthode login()
+        self.email = (
+            login  # stocké sous email pour éviter l'écrasement de la méthode login()
+        )
         self._password = password
         self.download_path = Path(download_path)
         self.download_path.mkdir(parents=True, exist_ok=True)
@@ -67,9 +69,7 @@ class QobuzProvider:
         self.firefox_profile_path = firefox_profile_path
         self.chrome_user_data_dir = chrome_user_data_dir
         self.keep_browser_open = keep_browser_open
-        self.driver: Optional[Union[webdriver.Chrome, webdriver.Firefox]] = (
-            None
-        )
+        self.driver: Optional[Union[webdriver.Chrome, webdriver.Firefox]] = None
         self.registry = InvoiceRegistry(self.download_path)
 
     @property
@@ -107,15 +107,10 @@ class QobuzProvider:
         opts = FirefoxOptions()
         if self.headless:
             opts.add_argument("--headless")
-        if (
-            self.firefox_profile_path
-            and Path(self.firefox_profile_path).exists()
-        ):
+        if self.firefox_profile_path and Path(self.firefox_profile_path).exists():
             opts.profile = FirefoxProfile(self.firefox_profile_path)
         driver_path = GeckoDriverManager().install()
-        return webdriver.Firefox(
-            service=FirefoxService(driver_path), options=opts
-        )
+        return webdriver.Firefox(service=FirefoxService(driver_path), options=opts)
 
     def _dismiss_consent_banner(self) -> None:
         """Ferme le bandeau cookies/consentement s'il est affiché."""
@@ -199,9 +194,7 @@ class QobuzProvider:
         wait = WebDriverWait(self.driver, self.timeout)
         try:
             # Attendre n'importe quel input visible (SPA peut charger lentement)
-            wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input"))
-            )
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input")))
         except TimeoutException:
             logger.warning("Qobuz: aucun champ de formulaire trouvé")
             return False
@@ -343,9 +336,7 @@ class QobuzProvider:
                 self.driver.get(url)
                 time.sleep(3)
                 if self._is_logged_in():
-                    logger.info(
-                        "Qobuz: page factures/achats ouverte (%s)", url
-                    )
+                    logger.info("Qobuz: page factures/achats ouverte (%s)", url)
                     return True
             except Exception:
                 continue
@@ -359,18 +350,14 @@ class QobuzProvider:
         m = re.search(r"(\d{4})-(\d{2})-(\d{2})", text)
         if m:
             try:
-                return date_type(
-                    int(m.group(1)), int(m.group(2)), int(m.group(3))
-                )
+                return date_type(int(m.group(1)), int(m.group(2)), int(m.group(3)))
             except Exception:
                 pass
         # Format FR : 15/01/2024 ou 15-01-2024
         m = re.search(r"(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", text)
         if m:
             try:
-                return date_type(
-                    int(m.group(3)), int(m.group(2)), int(m.group(1))
-                )
+                return date_type(int(m.group(3)), int(m.group(2)), int(m.group(1)))
             except Exception:
                 pass
         return None
@@ -396,9 +383,7 @@ class QobuzProvider:
 
                 # Extraire l'ID de commande depuis l'URL
                 m = re.search(r"/profile/receipt/(\w+)", href)
-                receipt_id = (
-                    m.group(1) if m else re.sub(r"[^\w]", "_", href)[-20:]
-                )
+                receipt_id = m.group(1) if m else re.sub(r"[^\w]", "_", href)[-20:]
                 order_id = f"qobuz_{receipt_id}"
 
                 # Chercher la date dans la ligne parente (tr ou div conteneur)
@@ -428,9 +413,7 @@ class QobuzProvider:
                 )
         except Exception as e:
             logger.warning("Qobuz list_orders_or_invoices: %s", e)
-        logger.info(
-            "Qobuz: %d reçu(s) trouvé(s) sur la page courante", len(out)
-        )
+        logger.info("Qobuz: %d reçu(s) trouvé(s) sur la page courante", len(out))
         return out
 
     def _download_pdf_cdp(
@@ -470,9 +453,7 @@ class QobuzProvider:
             )
             pdf_bytes = base64.b64decode(result.get("data", ""))
             if not pdf_bytes:
-                logger.warning(
-                    "Qobuz: CDP printToPDF données vides pour %s", url
-                )
+                logger.warning("Qobuz: CDP printToPDF données vides pour %s", url)
                 return None
 
             if invoice_date:
@@ -501,19 +482,13 @@ class QobuzProvider:
             if isinstance(order_or_id, OrderInfo)
             else str(order_or_id)
         )
-        if not force_redownload and self.registry.is_downloaded(
-            PROVIDER_QOBUZ, oid
-        ):
+        if not force_redownload and self.registry.is_downloaded(PROVIDER_QOBUZ, oid):
             logger.info("Qobuz: facture déjà présente pour %s, skip", oid)
             return None
         url = None
         if isinstance(order_or_id, OrderInfo) and order_or_id.invoice_url:
             url = order_or_id.invoice_url
-        if (
-            not url
-            and isinstance(order_or_id, str)
-            and order_or_id.startswith("http")
-        ):
+        if not url and isinstance(order_or_id, str) and order_or_id.startswith("http"):
             url = order_or_id
         if not url:
             return None
@@ -523,9 +498,7 @@ class QobuzProvider:
                 PROVIDER_QOBUZ,
                 oid,
                 filename,
-                invoice_date=(
-                    invoice_date.isoformat() if invoice_date else None
-                ),
+                invoice_date=(invoice_date.isoformat() if invoice_date else None),
             )
         return filename
 
@@ -581,9 +554,7 @@ class QobuzProvider:
                 break
             new_orders = [o for o in page_orders if o.order_id not in seen_ids]
             if not new_orders:
-                logger.info(
-                    "Qobuz: page %d sans nouvelles entrées, arrêt", page
-                )
+                logger.info("Qobuz: page %d sans nouvelles entrées, arrêt", page)
                 break
             for o in new_orders:
                 seen_ids.add(o.order_id)
@@ -603,9 +574,7 @@ class QobuzProvider:
                     or "next" in src.lower()
                 )
                 if not has_next:
-                    logger.info(
-                        "Qobuz: pas de page suivante après page %d", page
-                    )
+                    logger.info("Qobuz: pas de page suivante après page %d", page)
                     break
             except Exception:
                 break
@@ -619,9 +588,7 @@ class QobuzProvider:
             return {"count": 0, "files": []}
 
         # Filtrage par date
-        has_filter = bool(
-            year or month or months or date_start_d or date_end_d
-        )
+        has_filter = bool(year or month or months or date_start_d or date_end_d)
         filtered = []
         for o in orders:
             d = o.invoice_date
@@ -680,9 +647,7 @@ class QobuzProvider:
                 count += 1
                 if on_progress:
                     try:
-                        cb = on_progress(
-                            count, total, f"{count}/{total} facture(s)"
-                        )
+                        cb = on_progress(count, total, f"{count}/{total} facture(s)")
                         if hasattr(cb, "__await__"):
                             await cb
                     except Exception:
