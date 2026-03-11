@@ -52,8 +52,10 @@ const DownloadForm: React.FC<DownloadFormProps> = ({
   useEffect(() => {
     const available = providers.filter((p) => p.implemented && p.configured);
     if (available.length === 0) return;
-    const currentAvailable = available.some((p) => p.id === provider);
-    if (!currentAvailable) setProvider(available[0].id);
+    setProvider((current) => {
+      const stillAvailable = available.some((p) => p.id === current);
+      return stillAvailable ? current : available[0].id;
+    });
   }, [providers]);
 
   const [maxInvoices, setMaxInvoices] = useState<number>(100);

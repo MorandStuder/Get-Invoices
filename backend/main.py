@@ -82,8 +82,8 @@ def _open_chrome_when_ready(url: str, max_wait: int = 60) -> None:
 class Settings(BaseSettings):
     """Configuration de l'application."""
 
-    amazon_email: str
-    amazon_password: str
+    amazon_email: Optional[str] = None
+    amazon_password: Optional[str] = None
     download_path: str = "./factures"
     max_invoices: int = 100
     selenium_headless: bool = False
@@ -141,18 +141,6 @@ class Settings(BaseSettings):
     def validate_settings(self) -> None:
         """Valide les paramètres de configuration."""
         errors = []
-
-        # Vérifier que l'email est fourni
-        if not self.amazon_email or self.amazon_email == "votre_email@example.com":
-            errors.append(
-                "AMAZON_EMAIL n'est pas configuré ou utilise la valeur par défaut"
-            )
-
-        # Vérifier que le mot de passe est fourni
-        if not self.amazon_password or self.amazon_password == "votre_mot_de_passe":
-            errors.append(
-                "AMAZON_PASSWORD n'est pas configuré ou utilise la valeur par défaut"
-            )
 
         # Vérifier que le navigateur est valide
         if self.selenium_browser not in ["chrome", "firefox"]:
@@ -257,30 +245,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Provider Amazon : répertoire ./factures/amazon (ou DOWNLOAD_PATH/amazon)
     if AmazonProvider.PROVIDER_ID in PROVIDERS:
-        try:
-            logger.info("Initialisation du provider Amazon...")
-            amazon_path = base_path / "amazon"
-            amazon_path.mkdir(parents=True, exist_ok=True)
-            downloaders[AmazonProvider.PROVIDER_ID] = AmazonProvider(
-                email=settings.amazon_email,
-                password=settings.amazon_password,
-                download_path=amazon_path,
-                headless=settings.selenium_headless,
-                timeout=settings.selenium_timeout,
-                manual_mode=settings.selenium_manual_mode,
-                browser=browser,
-                firefox_profile_path=settings.firefox_profile_path,
-                chrome_user_data_dir=_chrome_dir("amazon"),
-                keep_browser_open=settings.selenium_keep_browser_open,
-            )
-            logger.info("Provider Amazon initialisé avec succès")
-        except Exception as e:
-            logger.error(
-                f"Erreur lors de l'initialisation du provider Amazon: {str(e)}"
-            )
-            import traceback
+        if settings.amazon_email and settings.amazon_password:
+            try:
+                logger.info("Initialisation du provider Amazon...")
+                amazon_path = base_path / "amazon"
+                amazon_path.mkdir(parents=True, exist_ok=True)
+                downloaders[AmazonProvider.PROVIDER_ID] = AmazonProvider(
+                    email=settings.amazon_email,
+                    password=settings.amazon_password,
+                    download_path=amazon_path,
+                    headless=settings.selenium_headless,
+                    timeout=settings.selenium_timeout,
+                    manual_mode=settings.selenium_manual_mode,
+                    browser=browser,
+                    firefox_profile_path=settings.firefox_profile_path,
+                    chrome_user_data_dir=_chrome_dir("amazon"),
+                    keep_browser_open=settings.selenium_keep_browser_open,
+                )
+                logger.info("Provider Amazon initialisé avec succès")
+            except Exception as e:
+                logger.error(
+                    f"Erreur lors de l'initialisation du provider Amazon: {str(e)}"
+                )
+                import traceback
 
-            logger.debug(traceback.format_exc())
+                logger.debug(traceback.format_exc())
+        else:
+            logger.debug(
+                "Amazon non configuré (AMAZON_EMAIL / AMAZON_PASSWORD absents)"
+            )
 
     # Freebox (si identifiants présents)
     if FreeboxProvider.PROVIDER_ID in PROVIDERS:
@@ -626,7 +619,6 @@ async def download_invoices(
         await progress_queue.put(("progress", current, total, message))
 
     async def run_download() -> None:
-        success = False
         try:
             result = await asyncio.wait_for(
                 downloader.download_invoices(
@@ -642,7 +634,6 @@ async def download_invoices(
                 ),
                 timeout=DOWNLOAD_TIMEOUT_SECONDS,
             )
-            success = True
             await progress_queue.put(("done", result, None, None))
         except asyncio.TimeoutError:
             await progress_queue.put(("error", "timeout", None, None))
