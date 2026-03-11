@@ -1,5 +1,7 @@
 # Code Review — Get-Invoices (V2)
 
+_Dernière mise à jour : mars 2026_
+
 ## Vue d'ensemble
 
 Outil de téléchargement automatisé de factures fournisseurs via Selenium.
@@ -14,19 +16,20 @@ Stack : **FastAPI** + **React/TypeScript** + **Selenium WebDriver**.
 ```
 backend/
 ├── main.py                  # FastAPI app, endpoints SSE, lifespan handlers
-├── models/schemas.py        # Pydantic v2 models
+├── models/schemas.py        # Pydantic v2 models (ConfigDict)
 ├── providers/
 │   ├── base.py              # InvoiceProviderProtocol (Protocol duck-typing)
 │   ├── __init__.py          # Registre PROVIDERS + PROVIDER_LABELS
 │   └── <provider>.py        # Un fichier par fournisseur
 └── services/
-    ├── amazon_downloader.py # Wrapper legacy Amazon
-    └── invoice_registry.py  # Registre JSON persistant (anti-redoublon)
+    ├── amazon_downloader.py # Wrapper legacy Amazon (Selenium)
+    └── invoice_registry.py  # Registre JSON persistant (anti-doublon)
 
 frontend/src/
 ├── App.tsx                  # Composant principal, gestion état global
 ├── components/
-│   └── DownloadForm.tsx     # Formulaire de téléchargement
+│   ├── DownloadForm.tsx     # Formulaire de téléchargement
+│   └── StatusDisplay.tsx    # Affichage progression SSE
 └── services/
     └── api.ts               # Client SSE + appels REST
 ```
@@ -37,56 +40,55 @@ frontend/src/
 
 ### Backend
 
-- **Protocol duck-typing** (`base.py`) : les providers n'ont pas à hériter d'une classe abstraite, ce qui facilite l'ajout de nouveaux fournisseurs.
-- **SSE streaming** (`main.py`) : progression temps réel via `StreamingResponse` + `yield`, évite les timeouts sur les longues opérations.
-- **InvoiceRegistry** (`invoice_registry.py`) : registre JSON persistant par provider, évite les re-téléchargements. Supporte la déduplication par `order_id` et par URL (`is_downloaded_by_url`).
-- **Timeout 600 s** (`DOWNLOAD_TIMEOUT_SECONDS`) : évite les requêtes bloquées indéfiniment.
-- **Logs rotatifs** : `logs/app.log` avec `RotatingFileHandler` (10 MB max), évite la croissance infinie.
-- **pydantic-settings** : configuration centralisée via `.env`, validée au démarrage.
-- **`keep_browser_open`** : session browser préservable entre les appels — utile pour les providers avec 2FA ou session longue.
+- **Protocol duck-typing** (`base.py`) : les providers n'héritent pas d'une classe abstraite — ajout d'un nouveau provider = créer un fichier + l'enregistrer dans `__init__.py`.
+- **SSE streaming** (`main.py`) : progression temps réel via `StreamingResponse` + `asyncio.Queue`, évite les timeouts sur longues opérations (timeout 600 s).
+- **InvoiceRegistry** (`invoice_registry.py`) : registre JSON persistant par provider dans `.invoice_registry.json`. Déduplication par `order_id` et par URL (`is_downloaded_by_url`).
+- **`order_id` déterministe** : tous les providers utilisent `hashlib.md5(url.encode()).hexdigest()[:12]` — stable entre sessions, évite les re-téléchargements causés par `hash()` aléatoire.
+- **Profil Chrome par provider** : `_chrome_dir(provider_id)` crée un sous-dossier isolé (`GetInvoicesChrome/qobuz/`, etc.) — pas de conflit de lockfile entre providers successifs.
+- **Logs rotatifs** : `logs/app.log` via `RotatingFileHandler` (10 MB max, 5 backups).
+- **pydantic-settings** : configuration centralisée via `.env`, validée au démarrage (`validate_settings`).
+- **`keep_browser_open`** : session browser préservable entre appels — utile pour les providers avec session longue.
 
 ### Frontend
 
-- **SSE natif** : `fetch` + `ReadableStream` pour la progression, plus léger qu'un WebSocket.
-- **Filtre de période unifié** : même formulaire (Depuis la dernière fois / Année / Mois / Plage) pour téléchargement unitaire et multi-fournisseurs.
-- **TypeScript strict** : interfaces bien typées pour les réponses API.
-- **AbortController** : annulation propre du téléchargement en cours.
+- **SSE natif** : `fetch` + `ReadableStream`, plus léger qu'un WebSocket.
+- **Filtre de période unifié** : même formulaire (Depuis la dernière fois / Toutes / Année / Mois / Plage de dates) pour téléchargement unitaire **et** multi-fournisseurs.
+- **`AbortController`** : annulation propre du téléchargement en cours.
+- **TypeScript strict** : interfaces typées pour toutes les réponses API.
+- **Guard `canLaunch`** : bouton désactivé si les filtres sélectionnés sont incomplets (plage sans dates, mois sans année…).
 
 ---
 
-## Problèmes identifiés et corrections apportées
+## Corrections appliquées (historique)
 
-### ✅ Corrigé — `hash()` non déterministe dans les providers
+### ✅ `hash()` non déterministe → `hashlib.md5`
 
-**Problème** : Python's `hash()` est aléatoire à chaque session (`PYTHONHASHSEED`). Les `order_id` générés depuis des URLs changeaient à chaque redémarrage → le registre ne reconnaissait jamais les factures déjà téléchargées → re-téléchargement systématique.
+`hash()` Python est aléatoire par session (`PYTHONHASHSEED`) : les `order_id` changeaient à chaque redémarrage, le registre ne reconnaissait jamais les doublons → re-téléchargement systématique.
 
-**Fichiers concernés** : `bouygues.py`, `fnac.py`, `freebox.py`, `free_mobile.py`, `orange.py`
+Corrigé dans : `bouygues.py`, `fnac.py`, `freebox.py`, `free_mobile.py`, `orange.py`.
 
-**Correction appliquée** :
 ```python
-# Avant (non déterministe)
+# Avant
 order_id = f"bouygues_{hash(full) % 100000}"
-
-# Après (stable entre sessions)
+# Après
 order_id = f"bouygues_{hashlib.md5(full.encode()).hexdigest()[:12]}"
 ```
 
-### ✅ Corrigé — Bouygues : double vérification registre
+### ✅ Bouygues : double vérification registre
 
-Ajout de `is_downloaded_by_url()` avant téléchargement + sauvegarde de `invoice_url` dans le registre pour déduplication URL-based.
+Ajout de `is_downloaded_by_url()` avant téléchargement + sauvegarde de `invoice_url` dans le registre → déduplication par URL en plus de l'`order_id`.
 
-### ✅ Corrigé — FNAC : détection robot
+### ✅ FNAC : suppression auto-login (détection robot)
 
-Suppression de `_try_auto_login()` qui remplissait le formulaire et déclenchait la détection anti-bot.
-`login()` attend désormais une connexion manuelle (profil persistant recommandé).
+`_try_auto_login()` remplissait le formulaire et déclenchait l'anti-bot FNAC. Supprimé. `login()` attend désormais une connexion manuelle (profil persistant recommandé).
 
-### ✅ Corrigé — `onKeyPress` déprécié (React 18)
+### ✅ React 18 : `onKeyPress` → `onKeyDown`
 
-`onKeyPress` → `onKeyDown` dans `App.tsx` (input OTP).
+`onKeyPress` déprécié dans React 18, remplacé par `onKeyDown` dans `App.tsx`.
 
-### ✅ Corrigé — Pydantic v2 : `class Config` → `model_config`
+### ✅ Pydantic v2 : `class Config` → `model_config = ConfigDict(...)`
 
-`schemas.py` : `class Config: json_schema_extra = {...}` → `model_config = ConfigDict(json_schema_extra={...})`.
+`schemas.py` migré vers la syntaxe Pydantic v2.
 
 ---
 
@@ -94,36 +96,41 @@ Suppression de `_try_auto_login()` qui remplissait le formulaire et déclenchait
 
 ### Backend
 
-1. **`hash(el)` sur élément Selenium** (`free_mobile.py`) : utilisé pour déduplication de lignes téléphoniques (pas des URLs). Acceptable mais fragile — un ID stable serait préférable (numéro de téléphone extrait).
+1. **`hash(el)` sur élément Selenium** (`free_mobile.py:460`) : utilisé pour déduplication de lignes téléphoniques (pas des URLs). Pas critique (le hash de l'objet Selenium est stable dans la même session), mais fragile. Préférable d'extraire le numéro de téléphone comme clé stable.
 
-2. **Gestion d'état provider globale** (`main.py`) : les instances de provider sont des variables globales. Pas thread-safe si plusieurs requêtes simultanées. Acceptable pour usage mono-utilisateur.
+2. **État global des providers** (`main.py`) : les instances sont dans un `dict` global. Pas thread-safe si deux requêtes simultanées touchent le même provider. Acceptable pour usage mono-utilisateur local.
 
-3. **Pas de retry automatique** : si Selenium plante en milieu de téléchargement, l'erreur remonte directement. Un mécanisme de retry (1-2 fois) sur les erreurs transitoires améliorerait la robustesse.
+3. **Pas de retry** : une erreur Selenium en milieu de téléchargement remonte directement. Un retry 1-2 fois sur les erreurs transitoires (`StaleElementReferenceException`, timeout réseau) améliorerait la robustesse.
 
-4. **Tests** : couverture ~35%, centrée sur amazon_downloader. Les providers Bouygues, Decathlon, FNAC, Free Mobile, Freebox, Orange ne sont pas testés.
+4. **Couverture de tests : ~16%** — centrée sur Amazon et Freebox. Les providers Bouygues, Decathlon, FNAC, Free Mobile, Orange ne sont pas testés. Difficile à tester sans mock Selenium.
 
-5. **`amazon_downloader.py`** : wrapper legacy qui duplique une partie de la logique de provider. Candidat à la refactorisation pour suivre `InvoiceProviderProtocol`.
+5. **`amazon_downloader.py`** : wrapper legacy (>1000 lignes) qui duplique une partie de la logique provider. Candidat à une refactorisation pour suivre `InvoiceProviderProtocol`, mais non prioritaire.
+
+6. **Validation `AMAZON_EMAIL`/`AMAZON_PASSWORD` obligatoires** (`validate_settings`) : le backend refuse de démarrer si Amazon n'est pas configuré, même si on n'utilise qu'Orange. Les credentials Amazon devraient être optionnels comme les autres.
 
 ### Frontend
 
-6. **Pas de persistence des paramètres** : le formulaire se réinitialise à chaque rechargement. Un `localStorage` pour le provider sélectionné et le type de filtre serait utile.
+7. **Pas de persistence UI** : le formulaire se réinitialise à chaque rechargement de page. Un `localStorage` pour le provider sélectionné et le type de filtre serait utile.
 
-7. **Gestion d'erreur réseau** : les erreurs de connexion au backend (backend off, CORS) affichent une erreur générique. Un message d'aide ("Le backend est-il démarré ?") aiderait.
+8. **Gestion d'erreur réseau générique** : si le backend est arrêté, l'erreur affichée est peu explicite. Un message contextuel ("Le backend est-il démarré sur le port 8001 ?") aiderait.
+
+9. **`DownloadForm.tsx:57`** : `useEffect` avec dépendance manquante (`provider`) — warning ESLint `react-hooks/exhaustive-deps`. Sans impact fonctionnel mais à corriger.
 
 ---
 
 ## Sécurité
 
 - Credentials dans `.env` (non versionné) : correct.
-- CORS configuré uniquement sur `localhost:3000` : correct pour usage local.
-- Aucune authentification sur l'API — normal pour un outil local, mais à noter si exposé sur réseau.
-- Pas d'injection possible dans les paramètres Pydantic (types stricts, validation `ge`/`le`).
+- CORS restreint à `localhost:3000` : correct pour usage local.
+- Aucune authentification sur l'API : normal pour outil local, à noter si jamais exposé sur réseau.
+- Validation stricte des paramètres Pydantic (`ge`, `le`, types) : pas d'injection possible via l'API.
 
 ---
 
 ## Conventions respectées
 
-- Black + isort : formatage standardisé.
-- Python 3.10+, annotations `from __future__ import annotations`.
-- Logs structurés avec niveaux (DEBUG/INFO/WARNING/ERROR).
-- `Optional[X]` avec `Field(default=None)` pour tous les champs optionnels.
+- **Black + isort** : formatage standardisé, vérifié en CI.
+- **Prettier** : formatage TypeScript/CSS vérifié en CI.
+- **Python 3.10+** avec annotations modernes (`X | Y`, `from __future__ import annotations`).
+- Logs structurés avec niveaux (`DEBUG` / `INFO` / `WARNING` / `ERROR`).
+- `Optional[X]` avec `Field(default=None)` pour tous les champs optionnels des schemas.
